@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>PIPOL KONEK</title>
+    <link
+      rel="stylesheet"
+      href="{{url_for('static', filename='styles.css')}}"
+    />
+  </head>
+  <body>
+    <div class="home-header"></div>
+    <div class="home-container">
+      <section class="main-content">
+        <h2>WELCOME TO</h2>
+        <h1>PIPOL KONEK</h1>
+        <h4>FREE WI-FI INTERNET ACCESS</h4>
+        <h4>IN PUBLIC PLACES PROJECT</h4>
+        <div class="logo-container">
+          <img src="{{url_for('static', filename='dict2.png')}}" class="logo" />
+          <img
+            src="{{url_for('static', filename='apollo.png')}}"
+            class="logo"
+          />
+        </div>
+        {% if send_to_access %}
+        <a href="{{ url_for('access', lang=lang) }}"
+          >
+        {% else %}
+        <a href="{{ url_for('lang') }}"
+          >
+        {% endif %}
+        <button class="enter-button">ENTER</button></a
+        >
+      </section>
+      <br />
+      <section class="copyright-footer">
+        <p>
+          Apollo Technologies, Inc. &copy; 2019
+        </p>
+      </section>
+    </div>
+    <div class="home-footer"></div>
+  </body>
+</html>

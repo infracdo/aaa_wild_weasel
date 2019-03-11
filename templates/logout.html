@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>PIPOL KONEK</title>
+    <link
+      rel="stylesheet"
+      href="{{url_for('static', filename='styles.css')}}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{url_for('static', filename='tables.min.css')}}"
+    />
+  </head>
+  <body>
+    <div class="home-header"></div>
+    <section class="logo-row">
+      <img
+        src="{{url_for('static', filename='apollo.png')}}"
+        class="portal-logo"
+      />
+    </section>
+    <br />
+    <div class="content-container">
+      <div class="top-bar"></div>
+      <section class="welcome">
+        <br />
+        <h2>{{ message }}</h2>
+      </section>
+      {% if hideReturnToHome %}
+      <p></p>
+      {% else %}
+      <section
+        style="display: flex; flex-direction: row; justify-content: center; margin-bottom: 2vh;"
+      >
+        <a href="{{ url_for('login') }}"
+          ><button class="enter-button portal-next">Return to Home</button></a
+        >
+      </section>
+      {% endif %}
+      <br /><br />
+      <div class="copyright-footer">
+        <p>Apollo Technologies, Inc. &copy; 2019</p>
+      </div>
+      <br />
+    </div>
+  </body>
+</html>

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>PIPOL KONEK</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='styles.css') }}"
+    />
+  </head>
+  <body>
+    <div class="home-header"></div>
+    <div class="content-container">
+      <div class="top-bar"></div>
+      <section class="logo-row">
+        <div class="login-logo"><h1>PIPOL KONEK</h1></div>
+        <img
+          src="{{ url_for('static', filename='dict.png') }}"
+          class="login-logo"
+        />
+        {% if logo_path %}
+        <img
+          src="{{url_for('static', filename=logo_path )}}"
+          class="login-logo"
+        />
+        {% endif %}
+      </section>
+
+      <h2>{% if lang == 'tl' %}Magsign In{% else %}Sign In{% endif %}</h2>
+      <br />
+      <form class="form" action="/login/" method="post">
+        <fieldset>
+          <label for="uname">Email</label>
+          <input type="text" name="uname" placeholder="user@example.com" />
+          <label for="pword">Password</label>
+          <input type="password" name="pword" placeholder="Password" />
+          <input type="hidden" name="package" value="Registered" />
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <p>
+            <a href="#"
+              >{% if lang == 'tl' %}Nakalimutan ang iyong {% else %}Forgot your
+              {% endif %}password?</a
+            >
+          </p>
+          {% if message != None %}
+          <p>
+            <b>{{ message }}</b>
+          </p>
+          {% endif %}
+          <button type="submit" class="enter-button form-button">
+            {% if lang == 'tl' %}Magsign In{% else %}Sign In{% endif %}
+          </button>
+          <p>
+            <a href="{{ url_for('register', lang=lang) }}"
+              >{% if lang == 'tl' %}Di pa nakapagrehistro? Mag-click dito para
+              magrehistro. {% else %}Not yet registered? Click here to register.
+              {% endif %}</a
+            >
+          </p>
+        </fieldset>
+      </form>
+      <br /><br /><br />
+      <div class="copyright-footer">
+        <p>Apollo Technologies, Inc. &copy; 2019</p>
+      </div>
+    </div>
+    <br /><br />
+  </body>
+</html>

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>PIPOL KONEK</title>
+    <link
+      rel="stylesheet"
+      href="{{url_for('static', filename='styles.css')}}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{url_for('static', filename='tables.min.css')}}"
+    />
+  </head>
+  <body>
+    <div class="home-header"></div>
+    <section class="logo-row">
+      <img
+        src="{{url_for('static', filename='apollo.png')}}"
+        class="portal-logo"
+      />
+    </section>
+    <br />
+    <div class="content-container">
+      <div class="top-bar">
+        <a href="{{ url_for('logout') }}" class="logout-link">Logout</a>
+      </div>
+      <section class="welcome">
+        <br />
+        <h2>Welcome</h2>
+        <br />
+        <p>
+          Username: <b>{{ session["uname"] }}</b>
+        </p>
+        <p>
+          IP Address: <b>{{ session["ip"] }}</b>
+        </p>
+      </section>
+      <table class="pure-table pure-table-horizontal">
+        <thead>
+          <tr>
+            <th>Bucket</th>
+            <th>Total</th>
+            <th>Used</th>
+            <th>Remaining</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <tr>
+            <td>{{ session["type"] }} Daily</td>
+            <td>{{ daily_limit }}(GiB)</td>
+            <td>{{ daily_used }}(MB)</td>
+            <td>{{ daily_remaining }}(MB)</td>
+          </tr>
+          <tr>
+            <td>{{ session["type"] }} Monthly</td>
+            <td>{{ monthly_limit }}(GiB)</td>
+            <td>{{ monthly_used }}(MB)</td>
+            <td>{{ monthly_remaining }}(MB)</td>
+          </tr>
+        </tbody>
+      </table>
+      <br />
+      <a href="https://google.com/"
+        ><button class="enter-button portal-next">Next</button></a
+      >
+      <br /><br />
+      {% if ad_img_path %}
+      <section>
+        <img src="{{ url_for('static', filename=ad_img_path) }}" />
+      </section>
+      {% endif %}
+      <!-- <div class="copyright-footer">
+        <p>Apollo Technologies, Inc. &copy; 2019</p>
+      </div> -->
+      <br /><br />
+    </div>
+  </body>
+</html>

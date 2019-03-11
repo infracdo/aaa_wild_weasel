@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>PIPOL KONEK</title>
+    <link
+      rel="stylesheet"
+      href="{{url_for('static', filename='styles.css')}}"
+    />
+  </head>
+  <body>
+    <div class="home-header"></div>
+    <div class="content-container">
+      <div class="top-bar"></div>
+      <section class="logo-row">
+        <div class="login-logo"><h1>PIPOL KONEK</h1></div>
+        <img
+          src="{{url_for('static', filename='dict.png')}}"
+          class="login-logo"
+        />
+        {% if logo_path %}
+        <img
+          src="{{url_for('static', filename=logo_path )}}"
+          class="login-logo"
+        />
+        {% endif %}
+      </section>
+
+      {% if lang == 'tl' %}
+      <h3>Uri ng Access</h3>
+      {% else %}
+      <h3>Types of Access</h3>
+      {% endif %}
+
+      <br />
+      <div class="access-buttons">
+        <form action="/login/" method="post">
+          <input type="hidden" name="uname" value="None" />
+          <input type="hidden" name="pword" value="None" />
+          <input type="hidden" name="package" value="Free" />
+          <button type="submit" class="access-button yellow">
+            INSTANT ACCESS ({{ limit1 }}MB)
+          </button>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        </form>
+        {% if lang == 'tl' %}
+        <a href="{{ url_for('loginReg', lang=lang) }}">
+        {% else %}
+        <a href="{{ url_for('loginReg') }}">
+        {% endif %}
+          <button class="access-button red">
+            {% if lang == 'tl' %}REHISTRADONG {% else %}REGISTERED {% endif %}
+            ACCESS ({{ limit2 }}MB)
+          </button>
+        </a>
+        <a href="#"
+          ><button class="access-button brown">
+            CERT ACCESS ({{ limit3 }}MB)
+          </button></a
+        >
+      </div>
+      <br /><br />
+      <div class="copyright-footer">
+        <p>Apollo Technologies, Inc. &copy; 2019</p>
+      </div>
+      <br />
+    </div>
+  </body>
+</html>

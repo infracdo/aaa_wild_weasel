@@ -1,0 +1,528 @@
+@import url("https://fonts.googleapis.com/css?family=Roboto:300,400,500,700,900");
+
+:root {
+  --mojo: rgb(201, 59, 45);
+  --porsche: rgb(247, 171, 87);
+  --terracotta: rgb(174, 34, 19);
+  --mine: rgb(50, 50, 50);
+  --buttercup: rgb(243, 174, 32);
+  --mercury: rgb(229, 229, 229);
+  --cinnabar: rgb(238, 58, 57);
+  --rope: rgb(139, 69, 18);
+}
+
+body {
+  font-family: "Roboto", sans-serif;
+  color: var(--mine);
+  background: white;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+button {
+  border: none;
+  font-family: "Roboto", sans-serif;
+}
+
+.home-header,
+.home-footer {
+  min-height: 7vh;
+  max-height: 7vh;
+}
+
+.home-container {
+  min-height: 83vh;
+  max-height: 83vh;
+  min-width: 84vw;
+  max-width: 84vw;
+  border: 0.3vh solid var(--terracotta);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding-bottom: 1vh;
+}
+.main-content {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 81vh;
+  max-height: 81vh;
+}
+.copyright-footer {
+  min-height: 2vh;
+  max-height: 2vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  text-align: center;
+  font-weight: 300;
+}
+.home-container h2 {
+  font-size: 2.8vw;
+  margin: 0px;
+  line-height: 120%;
+}
+.home-container h1 {
+  font-size: 7vw;
+  margin: 0px;
+  line-height: 120%;
+  font-weight: 900;
+  color: var(--mojo);
+}
+.home-container h4 {
+  font-size: 2.6vw;
+  margin: 0px;
+  line-height: 115%;
+}
+.logo-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  margin: 2vh 0;
+}
+.logo {
+  min-width: 15vw;
+  max-width: 15vw;
+  margin: 1vh 0px;
+}
+.enter-button {
+  background-color: var(--porsche);
+  color: white;
+  font-size: 1.8vw;
+  font-weight: 500;
+  padding: 1vh 1vw;
+  border-radius: 2px;
+  margin-top: 1vh;
+}
+
+.enter-button:hover {
+  background-color: var(--mojo);
+  cursor: pointer;
+}
+
+.content-container {
+  border: 0.3vh solid var(--mine);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  text-align: center;
+  min-width: 45vw;
+  max-width: 45vw;
+  padding: 0;
+  margin: 0;
+}
+
+.top-bar {
+  min-width: 45vw;
+  max-width: 45vw;
+  max-height: 7vh;
+  min-height: 7vh;
+  background-color: var(--terracotta);
+  margin-bottom: 2.5vh;
+}
+
+.terms {
+  min-width: 55vw;
+  max-width: 55vw;
+}
+
+.terms-bar {
+  max-height: 5vh;
+  min-height: 5vh;
+}
+
+.content-container h2 {
+  font-weight: 300;
+  font-size: 3vw;
+  line-height: 110%;
+  margin: 0;
+  padding: 0;
+}
+
+.content-container h3 {
+  font-weight: 300;
+  font-size: 2vw;
+  line-height: 120%;
+  margin: 0;
+  padding: 0;
+}
+
+.lang-button-row {
+  margin: 5vh 0;
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+}
+
+.button-a,
+.button-b {
+  color: white;
+  font-size: 1.6vw;
+  letter-spacing: 0.02em;
+  font-weight: 400;
+  padding: 3vh 3vw;
+  border-radius: 5px;
+  margin: 0 1vw;
+}
+
+.button-a {
+  background-color: var(--porsche);
+}
+.button-b {
+  background-color: red;
+}
+.button-a:hover,
+.button-b:hover {
+  cursor: pointer;
+  background-color: var(--terracotta);
+}
+
+.content-container.terms h1 {
+  font-weight: 400;
+  font-size: 2vw;
+  padding: 0;
+  margin: 0;
+  line-height: 150%;
+}
+.terms-container {
+  width: 85%;
+  text-align: justify;
+  background-color: var(--mercury);
+  padding: 1vh 1vw;
+}
+ol {
+  counter-reset: item;
+  padding-left: 0;
+}
+li {
+  display: block;
+  font-size: 1.2vw;
+  line-height: 160%;
+  padding-bottom: 1.5vh;
+  font-weight: 300;
+}
+li:before {
+  content: counters(item, ".") ". ";
+  counter-increment: item;
+}
+
+.terms-buttons {
+  margin: -1vh 0 5vh 0;
+}
+
+.logo-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 1.5vh;
+}
+.login-logo {
+  max-width: 9.8vw;
+  margin: 0 1vw;
+}
+.login-logo h1 {
+  font-size: 3vw;
+  font-weight: 900;
+  color: var(--terracotta);
+}
+
+.access-buttons {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.access-button {
+  padding: 1.5vh 1vw;
+  border: none;
+  color: white;
+  font-size: 1.5vw;
+  font-weight: 500;
+  min-width: 35vw;
+  margin-bottom: 1.8vh;
+  border-radius: 5px;
+}
+
+.yellow {
+  background-color: var(--buttercup);
+}
+
+.red {
+  background-color: var(--cinnabar);
+}
+
+.brown {
+  background-color: var(--rope);
+}
+
+.access-button:hover {
+  cursor: pointer;
+  background-color: #555;
+}
+
+.portal-logo {
+  max-width: 13vw;
+  margin: 0 1vw;
+}
+
+.portal-next {
+  font-size: 1.25vw;
+  font-weight: 400;
+}
+
+.logout-link {
+  position: absolute;
+  right: 1vw;
+  top: 1vh;
+  font-size: 1.25vw;
+  padding: 1vh 1vw;
+  background-color: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  text-decoration: none;
+}
+
+.logout-link:hover {
+  background-color: transparent;
+  text-decoration: underline;
+}
+
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  width: 83%;
+  text-align: left;
+  margin-bottom: 2vh;
+}
+.welcome p {
+  margin: 0;
+  line-height: 160%;
+  font-size: 1.15vw;
+}
+.welcome h2 {
+  text-align: center;
+}
+.form input[type="text"],
+.form input[type="password"],
+.form input[type="email"],
+.form select,
+.form textarea,
+.form-element {
+  padding: 1.5vh 1.2vw;
+  display: block;
+  border: 1px solid #ccc;
+  box-shadow: inset 0 1px 3px #ddd;
+  border-radius: 4px;
+  box-sizing: border-box;
+  display: block;
+  margin: 1.5vh 0 3vh;
+  min-width: 100%;
+  max-width: 100%;
+  font-size: 1.3vw;
+  color: var(--mine);
+  font-family: "Roboto", sans-serif;
+  text-align: center;
+}
+.form select {
+  background-color: white;
+  display: inline-block;
+}
+input {
+  font-family: "Roboto", sans-serif;
+}
+.form label {
+  display: block;
+  margin: 1.5vh 0 1.2vh;
+  font-size: 1.5vw;
+  font-weight: 300;
+}
+.form fieldset {
+  margin: 0;
+  padding: 1.35vh 0 1.75vh;
+  border: 0;
+  min-width: 35vw;
+  max-width: 35vw;
+}
+.form-button {
+  background-color: var(--mojo);
+  color: white;
+  min-width: 50%;
+  max-width: 50%;
+}
+.inline select {
+  display: inline;
+  min-width: 30%;
+  max-width: 10%;
+}
+div#content {
+  display: none;
+}
+div#loading {
+  top: 200 px;
+  margin: auto;
+  position: absolute;
+  z-index: 1000;
+  width: 200px;
+  height: 200px;
+  background: url(loading.gif) no-repeat;
+  cursor: wait;
+}
+
+@media (max-width: 1080px) {
+  .home-container h1 {
+    font-size: 9vh;
+    font-weight: 900;
+    line-height: 100%;
+    margin: 1vh 0;
+  }
+  .home-container h2,
+  .home-container h3 {
+    font-size: 3.9vh;
+  }
+  .home-container h4 {
+    font-size: 2.7vh;
+  }
+  .enter-button {
+    font-size: 2.3vh;
+    padding: 1.5vh 3vw;
+  }
+  .logo-container {
+    margin: 4vh 0;
+  }
+  .logo {
+    min-width: 19.5vh;
+    max-width: 19.5vh;
+  }
+  .copyright-footer p {
+    font-size: 1.7vh;
+  }
+
+  .content-container,
+  .top-bar {
+    min-width: 80vw;
+    max-width: 80vw;
+  }
+
+  .top-bar {
+    min-height: 6vh;
+    max-height: 6vh;
+  }
+  .content-container {
+    border: 0.2vh solid var(--mine);
+  }
+
+  .terms {
+    min-width: 88vw;
+    max-width: 88vw;
+  }
+
+  .content-container h2 {
+    font-size: 7vw;
+  }
+
+  .content-container h3 {
+    font-size: 6vw;
+  }
+
+  .terms-container {
+    width: 90%;
+  }
+
+  .lang-button-row {
+    margin: 4vh 0;
+  }
+  .button-a,
+  .button-b {
+    font-size: 3.5vw;
+    padding: 1.5vh 3vw;
+    margin-bottom: 1.5vh;
+  }
+
+  li {
+    font-size: 4vw;
+    line-height: 160%;
+    padding-bottom: 0.6vh;
+  }
+
+  .content-container.terms h1 {
+    font-size: 6vw;
+  }
+
+  .terms-buttons {
+    margin: 0 0 3vh 0;
+  }
+
+  .login-logo {
+    max-width: 18vw;
+    margin: 0 1.8vw;
+  }
+  .login-logo h1 {
+    font-size: 5vw;
+    font-weight: 900;
+  }
+  .access-button {
+    font-size: 3.5vw;
+    min-width: 60vw;
+    max-width: 60vw;
+  }
+
+  .portal-logo {
+    max-width: 27vw;
+    margin: 0 1.8vw;
+  }
+
+  .logout-link {
+    right: 2vw;
+    top: 1vh;
+    font-size: 3vw;
+    padding: 1vh 2vw;
+  }
+
+  .portal-next {
+    font-size: 3vw;
+    padding: 1vh 1.5vw;
+  }
+
+  .welcome p {
+    font-size: 2.6vw;
+  }
+  .form input[type="text"],
+  .form input[type="password"],
+  .form input[type="email"],
+  .form select,
+  .form textarea {
+    padding: 1.5vh 1.2vw;
+
+    margin: 1.5vh 0;
+    font-size: 4vw;
+  }
+  .form select,
+  .inline select,
+  option {
+    font-size: 3.5vw;
+  }
+  .form label {
+    margin: 1.5vh 0 1.2vh;
+    font-size: 4.2vw;
+  }
+  .form fieldset {
+    padding: 1.35vh 0 1.75vh;
+    min-width: 65vw;
+    max-width: 65vw;
+  }
+  .form p {
+    font-size: 2.8vw;
+  }
+}

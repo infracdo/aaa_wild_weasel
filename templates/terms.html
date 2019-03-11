@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>PIPOL KONEK</title>
+    <link
+      rel="stylesheet"
+      href="{{url_for('static', filename='styles.css')}}"
+    />
+  </head>
+  <body>
+    <div class="home-header"></div>
+    <div class="content-container terms">
+      <section class="top-bar terms terms-bar"></section>
+      <h1>Terms and Conditions</h1>
+      <br />
+      <section class="terms-container">
+        <ol>
+          <li>
+            Our agreement <br />
+            <ol>
+              <li>
+                This agreement applies from when we accept your request for
+                Service. Please read the terms carefully before activating
+                Service with us.
+              </li>
+              <li>
+                By using and/or activating Service with us and/or clicking the
+                accept button on the login/registration page, you agree to be
+                bound by this agreement. If you do not agree to the terms of the
+                agreement, do not use the Service.
+              </li>
+              <li>
+                We may modify the agreement at any time. In accordance with the
+                clause 1.2, use of the Service constitutes acceptance of the
+                agreement current at that point in time.
+              </li>
+              <li>
+                These Terms and Conditions do not alter in any way the terms or
+                conditions of any other agreement you may have with the DICT
+                Office for products, services or otherwise. This agreement
+                contains disclaimers and other provisions that limit our
+                liability to you.
+              </li>
+            </ol>
+          </li>
+          <li>
+            Providing services <br />
+            <ol>
+              <li>
+                You are responsible for providing all hardware and other
+                equipment required to access and use the Service (a "Unit"). We
+                recommend and 802.11b or above compatible computer, computer
+                card, and/or device to access the Service. You are responsible
+                for ensuring the compatibility of your Unit with the Service.
+                The availability and performance of the Service is subject to
+                all memory, storage and other Unit limitations.
+              </li>
+              <li>
+                Service is available to your unit only when it is within the
+                range of our Wireless LAN.
+              </li>
+            </ol>
+          </li>
+        </ol>
+        <div class="lang-button-row terms-buttons">
+          <a href="{{ url_for('access') }}"
+            ><button class="button-a">I Agree</button></a
+          >
+          <a href="{{ url_for('login') }}">
+            <button class="button-b">I Disagree</button></a
+          >
+        </div>
+        <div class="copyright-footer">
+          <p>Apollo Technologies, Inc. &copy; 2019</p>
+        </div>
+      </section>
+      <br />
+    </div>
+    <br /><br />
+  </body>
+</html>

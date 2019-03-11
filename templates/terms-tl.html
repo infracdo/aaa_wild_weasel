@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>PIPOL KONEK</title>
+    <link
+      rel="stylesheet"
+      href="{{url_for('static', filename='styles.css')}}"
+    />
+  </head>
+  <body>
+    <div class="home-header"></div>
+    <div class="content-container terms">
+      <section class="top-bar terms terms-bar"></section>
+      <h1>
+        Mga Tuntunin at Kundisyon
+      </h1>
+      <br />
+      <section class="terms-container">
+        <ol>
+          <li>
+            Ang ating kasunduan <br />
+            <ol>
+              <li>
+                Nalalapat ang kasunduan mula sa kapag tinanggap namin ang iyong
+                kahilingan para sa Serbisyo. Mangyaring basahin nang maingat ang
+                mga tuntunin bago i-activate ang Serbisyo sa amin.
+              </li>
+              <li>
+                Sa pamamagitan ng paggamit at / o pag-activate ng Serbisyo sa
+                amin at / o pag-click sa pindutang tanggapin sa pahina ng
+                pag-login / pagpaparehistro, sumasang-ayon kang sumunod sa
+                kasunduang ito. Kung hindi ka sumasang-ayon sa mga tuntunin ng
+                kasunduan, huwag gamitin ang Serbisyo.
+              </li>
+              <li>
+                Maaari naming baguhin ang kasunduan sa anumang oras. Alinsunod
+                sa sugnay 1.2, ang paggamit ng Serbisyo ay bumubuo ng pagtanggap
+                ng kasalukuyang kasunduan sa puntong iyon sa oras.
+              </li>
+              <li>
+                Ang mga Tuntunin at Kundisyon na ito ay hindi babaguhin sa
+                anumang paraan ang mga tuntunin o kundisyon ng anumang iba pang
+                kasunduan na mayroon ka sa Opisina ng DICT para sa mga produkto,
+                mga serbisyo o kung hindi man. Ang kasunduang ito ay naglalaman
+                ng mga pagtatanggi at iba pang mga probisyon na naglilimita sa
+                aming pananagutan sa iyo.
+              </li>
+            </ol>
+          </li>
+          <li>
+            Pagbibigay ng mga serbisyo <br />
+            <ol>
+              <li>
+                Responsable ka sa pagbibigay ng lahat ng hardware at iba pang
+                kagamitan na kinakailangan upang ma-access at gamitin ang
+                Serbisyo (isang "Unit"). Inirerekomenda namin at 802.11b o higit
+                pa ang katugmang computer, computer card, at / o device upang
+                ma-access ang Serbisyo. Responsable ka para masiguro ang
+                pagiging tugma ng iyong Unit sa Serbisyo. Ang availability at
+                pagganap ng Serbisyo ay napapailalim sa lahat ng memorya,
+                imbakan at iba pang mga limitasyon ng Unit.
+              </li>
+              <li>
+                Available lamang ang serbisyo sa iyong yunit kapag nasa hanay ng
+                aming Wireless LAN.
+              </li>
+            </ol>
+          </li>
+        </ol>
+        <div class="lang-button-row terms-buttons">
+          <a href="{{ url_for('access', lang='tl') }}"
+            ><button class="button-a">Sumasang-ayon Ako</button></a
+          >
+          <a href="{{ url_for('login') }}">
+            <button class="button-b">Hindi Ako Sang-ayon</button></a
+          >
+        </div>
+        <div class="copyright-footer">
+          <p>Apollo Technologies, Inc. &copy; 2019</p>
+        </div>
+      </section>
+      <br />
+    </div>
+    <br /><br />
+  </body>
+</html>

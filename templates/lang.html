@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>PIPOL KONEK</title>
+    <link
+      rel="stylesheet"
+      href="{{url_for('static', filename='styles.css')}}"
+    />
+  </head>
+  <body>
+    <div class="home-header"></div>
+    <div class="content-container">
+      <div class="top-bar"></div>
+      <h2>Please choose a</h2>
+      <h2>language.</h2>
+      <br />
+      <h3>(Pumili ng wika)</h3>
+      <div class="lang-button-row">
+        <a href="{{ url_for('terms', lang='en') }}"
+          ><button class="button-a">ENGLISH</button></a
+        >
+        <a href="{{ url_for('terms', lang='tl') }}"
+          ><button class="button-b">TAGLISH</button></a
+        >
+      </div>
+      <br />
+      <div class="copyright-footer">
+        <p>Apollo Technologies, Inc. &copy; 2019</p>
+      </div>
+    </div>
+  </body>
+</html>
