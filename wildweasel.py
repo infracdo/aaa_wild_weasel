@@ -15,12 +15,8 @@ from pyrad.packet import Packet
 from models import db, Transaction, Devices, Registered_Users, Admin_Users, Gateways, Data_Limits, Uptimes, Announcements, Logos, RegisterUser
 from googletrans import Translator
 import pyrad.packet
-import datetime
-import socket
-import uuid
+import datetime, socket, uuid, os, re
 from flask_uploads import UploadSet, IMAGES, configure_uploads, patch_request_class
-import os
-import re
 from jinja2 import Markup
 
 app = Flask(__name__)
@@ -75,6 +71,8 @@ def getLimit(gw_id, access_type, limit_type, default):
     limit = Data_Limits.query.filter_by(
         gw_id=gw_id, access_type=access_type, limit_type=limit_type,status=1).first()
     return default if limit == None else limit.value
+
+weasel = 'f4ec3eb1-d56b-490c-w1Ld-b83c-9dae8f0a555b-w3@s3L'
 
 def time_in_range(start, end, x):
     """Return true if x is in the range [start, end]"""
@@ -213,7 +211,7 @@ def login():
         session['device'] = request.headers.get('User-Agent')
         session['logged_in'] = True
         if session['ip'] == '' or session['ip'] == None:
-            return render_template('logout.html', message="Please connect to the portal using your WiFi settings.")
+            return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
         today = datetime.date.today().strftime('%Y-%m-%d')
         uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
         if uptime:
@@ -319,11 +317,11 @@ def auth():
 
     if stage_n == "logout":
         trans.stage = "logout"
+        db.session.commit()
         return "Auth: 0"
 
-    if session.get('logged_in'):
-        if stage_n =="counters" and session['logged_in'] == False:
-            return "Auth: 0"
+    if trans.stage == "logout":
+        return "Auth: 0"
 
     if trans.package == "Registered":
         daily_limit = getLimit(trans.gw_id, 2, 'dd', 100000000)
@@ -452,7 +450,7 @@ def portal():
             else:
                 session['type'] = "Level Two"
         else:
-            return render_template('logout.html', message="Please connect to the portal using your WiFi settings.")
+            return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
     if session["type"] == "Level One":
         daily_limit = getLimit(session['gw_id'], 1, 'dd', 50000000)
         month_limit = getLimit(session['gw_id'], 1, 'mm', 1000000000)
@@ -480,7 +478,12 @@ def portal():
 
 @app.route('/logout/')
 def logout():
-    session['logged_in'] = False
+    if session.get('token'):
+        trans = Transaction.query.filter_by(token=session['token']).first()
+        if trans:
+            trans.stage = "logout"
+            db.session.commit()
+            print("i entered here")
     return render_template('logout.html', message="You have logged out. Your Pipol Konek connection will automatically terminate after one (1) minute.")
 
 class RegisterForm(FlaskForm):
@@ -496,10 +499,14 @@ class RegisterForm(FlaskForm):
         if not form.password1.data == form.password2.data:
             raise validators.ValidationError('Passwords do not match.')
 
-    email = StringField('email', validators=[validators.InputRequired(), validators.Email(message='Please enter a valid email address.')])
+    def uniqueEmailValidator(form, field):
+        if RegisterUser.query.filter_by(username=form.email.data).first():
+            raise validators.ValidationError('Email already registered.')
+
+    email = StringField('email', validators=[validators.InputRequired(), validators.Email(message='Please enter a valid email address.'), uniqueEmailValidator])
     full_name = StringField('full_name', validators=[validators.InputRequired()])
     address = TextAreaField('address',validators=[validators.InputRequired()])
-    phone_no = StringField('phone_no', validators=[validators.InputRequired()])
+    phone_no = StringField('phone_no', validators=[validators.InputRequired(),validators.Regexp(r'^[\d]*$',message="Please enter a valid number."),validators.Length(min=7,message="Phone number too short.")])
     year_range = [str(i) for i in list(reversed(range(1900,datetime.date.today().year + 1,1)))]
     month_range = ["{:02d}".format(i) for i in range(1,13)]
     day_range = ["{:02d}".format(i) for i in range(1,32)]
@@ -509,7 +516,7 @@ class RegisterForm(FlaskForm):
     gender = SelectField('gender',choices=[('f','Female'),('m','Male')])
     govt_id_type = SelectField('govt_id_type', choices=[('ID', 'ID'),('PP', 'Passport')])
     govt_id_value = StringField('govt_id_value', validators=[validators.InputRequired()])
-    password1 = PasswordField('password1', validators=[passwordValidator, validators.InputRequired(), validators.Regexp(r'^[^\s]+$',message='No spaces allowed.')])
+    password1 = PasswordField('password1', validators=[passwordValidator, validators.InputRequired(), validators.Regexp(r'^[^\s]+$',message='No spaces allowed.'), validators.Length(min=6,message="Password must be at least 6 characters.")])
     password2 = PasswordField('password2', validators=[validators.InputRequired()])
 
 @app.route('/register/', methods=['GET', 'POST'])
@@ -517,12 +524,13 @@ def register():
     regForm = RegisterForm()
     if regForm.validate_on_submit():
         bday = regForm.birth_y.data + '-' + regForm.birth_m.data + '-' + regForm.birth_d.data
+        #en_pw = encrypt(weasel, regForm.password1.data)
         newUser = RegisterUser(username=regForm.email.data,value=regForm.password1.data,full_name=regForm.full_name.data,address=regForm.address.data,phone_no=regForm.phone_no.data,birthday=bday,gender=regForm.gender.data,id_type=regForm.govt_id_type.data,id_value=regForm.govt_id_value.data,status=1)
         db.session.add(newUser)
         db.session.commit()
         return render_template('logout.html',message='Check your email to verify.')
     if regForm.errors.items():
-        flash("Your form has some errors. Please fix them before submitting.")
+        flash("Your form has some invalid input(s). Please fix them, and re-enter passwords, before submitting.")
     return render_template('register.html', form=regForm, logo_path=getLogo(session['gw_id']))
 
 # Define login and registration forms (for flask-login)
@@ -739,7 +747,9 @@ class DataLimitsView(ModelView):
 
     def on_model_change(self, form, model, is_created):
         existing_limit = Data_Limits.query.filter_by(gw_id=form.gateway_id.data.gw_id, access_type=form.access_type.data, limit_type=form.limit_type.data).first()
-        print(form.access_type.data + ", " + form.limit_type.data + ", " + form.gateway_id.data.gw_id)
+        # print(existing_limit.access_type, existing_limit.limit_type, existing_limit.gw_id)
+        # print(form.access_type.data + ", " + form.limit_type.data + ", " + form.gateway_id.data.gw_id)
+        # print(str(existing_limit.id) + ", " + str(model.id))
         if existing_limit:
             if existing_limit.id != model.id:
                 raise validators.ValidationError('This data limit for this gateway ID already exists.')
@@ -747,7 +757,12 @@ class DataLimitsView(ModelView):
             #print('This is standard output', file=sys.stdout)
             model.modified_by = current_user
         if is_created:
-            model.modified_by = current_user
+            if existing_limit:
+                if existing_limit.id != model.id:
+                    raise validators.ValidationError('This data limit for this gateway ID already exists.')
+            else:
+                model.modified_by = current_user
+        model.modified_by = current_user
 
     def is_accessible(self):
         return current_user.is_authenticated

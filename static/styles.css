@@ -103,7 +103,7 @@ button {
 }
 
 .enter-button:hover {
-  background-color: var(--mojo);
+  background-color: #555;
   cursor: pointer;
 }
 
@@ -183,7 +183,7 @@ button {
 .button-a:hover,
 .button-b:hover {
   cursor: pointer;
-  background-color: var(--terracotta);
+  background-color: #555;
 }
 
 .content-container.terms h1 {
