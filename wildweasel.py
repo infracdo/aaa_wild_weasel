@@ -18,6 +18,8 @@ import pyrad.packet
 import datetime, socket, uuid, os, re
 from flask_uploads import UploadSet, IMAGES, configure_uploads, patch_request_class
 from jinja2 import Markup
+from tzlocal import get_localzone
+from send_mail import send_mail
 
 app = Flask(__name__)
 csrf = CSRFProtect(app)
@@ -214,10 +216,11 @@ def login():
             return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
         today = datetime.date.today().strftime('%Y-%m-%d')
         uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
+        tz = get_localzone()
         if uptime:
             start = datetime.time(*map(int, str(uptime.start_time).split(':')))
             end = datetime.time(*map(int, str(uptime.end_time).split(':')))
-            if not time_in_range(start, end, datetime.datetime.now().time()):
+            if not time_in_range(start, end, tz.localize(datetime.datetime.now()).time()):
                 return render_template('logout.html', message=("Sorry, Pipol Konek is only available from " + start.strftime("%-I:%M %p") + " to " + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
         if Transaction.query.filter_by(mac=session['mac']).filter_by(device=session['device']).filter(Transaction.date_modified.like(today + '%')).filter_by(stage='authenticated').count() > 0:
             lang = request.cookies.get("lang")
@@ -262,11 +265,29 @@ def login():
 
 @app.route('/lang/', methods=['GET', 'POST'])
 def lang():
+    if not session.get('ip'):
+        return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
+    uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
+    tz = get_localzone()
+    if uptime:
+        start = datetime.time(*map(int, str(uptime.start_time).split(':')))
+        end = datetime.time(*map(int, str(uptime.end_time).split(':')))
+        if not time_in_range(start, end, tz.localize(datetime.datetime.now()).time()):
+            return render_template('logout.html', message=("Sorry, Pipol Konek is only available from " + start.strftime("%-I:%M %p") + " to " + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
     return render_template('lang.html')
 
 
 @app.route('/terms/<lang>', methods=['GET', 'POST'])
 def terms(lang):
+    if not session.get('ip'):
+        return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
+    uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
+    tz = get_localzone()
+    if uptime:
+        start = datetime.time(*map(int, str(uptime.start_time).split(':')))
+        end = datetime.time(*map(int, str(uptime.end_time).split(':')))
+        if not time_in_range(start, end, tz.localize(datetime.datetime.now()).time()):
+            return render_template('logout.html', message=("Sorry, Pipol Konek is only available from " + start.strftime("%-I:%M %p") + " to " + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
     if lang =="en":
         resp = make_response(render_template('terms.html'))
     else:
@@ -290,6 +311,15 @@ def getLogo(gw_id):
 @app.route('/access/')
 @app.route('/access/<lang>')
 def access(lang=None):
+    if not session.get('ip'):
+        return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
+    uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
+    tz = get_localzone()
+    if uptime:
+        start = datetime.time(*map(int, str(uptime.start_time).split(':')))
+        end = datetime.time(*map(int, str(uptime.end_time).split(':')))
+        if not time_in_range(start, end, tz.localize(datetime.datetime.now()).time()):
+            return render_template('logout.html', message=("Sorry, Pipol Konek is only available from " + start.strftime("%-I:%M %p") + " to " + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
     limit1 = "{0:.0f}".format(getLimit(session['gw_id'], 1, 'dd', 50000000)/1000000)
     limit2 = "{0:.0f}".format(getLimit(session['gw_id'], 2, 'dd', 100000000)/1000000)
     limit3 = "{0:.0f}".format(getLimit(session['gw_id'], 3, 'dd', 300000000)/1000000)
@@ -299,6 +329,15 @@ def access(lang=None):
 @app.route('/login-reg/')
 @app.route('/login-reg/<lang>')
 def loginReg(lang=None):
+    if not session.get('ip'):
+        return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
+    uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
+    tz = get_localzone()
+    if uptime:
+        start = datetime.time(*map(int, str(uptime.start_time).split(':')))
+        end = datetime.time(*map(int, str(uptime.end_time).split(':')))
+        if not time_in_range(start, end, tz.localize(datetime.datetime.now()).time()):
+            return render_template('logout.html', message=("Sorry, Pipol Konek is only available from " + start.strftime("%-I:%M %p") + " to " + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
     return render_template('login.html', lang=lang, logo_path=getLogo(session['gw_id']))
 
 
@@ -317,11 +356,25 @@ def auth():
 
     if stage_n == "logout":
         trans.stage = "logout"
+        trans.date_modified = str(datetime.datetime.now())
         db.session.commit()
         return "Auth: 0"
 
-    if trans.stage == "logout":
+    if trans.stage == "logout" or trans.stage == "end_email_validation":
         return "Auth: 0"
+
+    if trans.stage == "pending_confirmation" or trans.stage == "start_email_validation":
+        last_modified = datetime.datetime.strptime(trans.date_modified, '%Y-%m-%d %H:%M:%S.%f')
+        elapsed_time = datetime.datetime.now() - last_modified
+        if elapsed_time <= datetime.timedelta(minutes=15):
+            trans.stage = "start_email_validation"
+            db.session.commit()
+            return "Auth: 1"
+        else:
+            trans.stage = "end_email_validation"
+            trans.date_modified = str(datetime.datetime.now())
+            db.session.commit()
+            return "Auth: 0"
 
     if trans.package == "Registered":
         daily_limit = getLimit(trans.gw_id, 2, 'dd', 100000000)
@@ -426,6 +479,7 @@ def auth():
             device.last_active = str(datetime.datetime.now())
             db.session.commit()
     trans.stage = stage_n
+    trans.date_modified = str(datetime.datetime.now())
     db.session.commit()
     return "Auth: 1"
 
@@ -451,6 +505,9 @@ def portal():
                 session['type'] = "Level Two"
         else:
             return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
+    trans = Transaction.query.filter_by(token=session['token']).first()
+    if trans and trans.stage == 'start_email_validation':
+        return render_template('logout.html',message='Check your email to verify. You are given fifteen (15) minutes of internet connection to activate your email.', hideReturnToHome=True) 
     if session["type"] == "Level One":
         daily_limit = getLimit(session['gw_id'], 1, 'dd', 50000000)
         month_limit = getLimit(session['gw_id'], 1, 'mm', 1000000000)
@@ -482,6 +539,7 @@ def logout():
         trans = Transaction.query.filter_by(token=session['token']).first()
         if trans:
             trans.stage = "logout"
+            trans.date_modified = str(datetime.datetime.now())
             db.session.commit()
             print("i entered here")
     return render_template('logout.html', message="You have logged out. Your Pipol Konek connection will automatically terminate after one (1) minute.")
@@ -521,22 +579,58 @@ class RegisterForm(FlaskForm):
 
 @app.route('/register/', methods=['GET', 'POST'])
 def register():
+    if not session.get('ip'):
+        return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
+    uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
+    tz = get_localzone()
+    if uptime:
+        start = datetime.time(*map(int, str(uptime.start_time).split(':')))
+        end = datetime.time(*map(int, str(uptime.end_time).split(':')))
+        if not time_in_range(start, end, tz.localize(datetime.datetime.now()).time()):
+            return render_template('logout.html', message=("Sorry, Pipol Konek is only available from " + start.strftime("%-I:%M %p") + " to " + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
     regForm = RegisterForm()
     if regForm.validate_on_submit():
         bday = regForm.birth_y.data + '-' + regForm.birth_m.data + '-' + regForm.birth_d.data
+        token = uuid.uuid4().hex
+        while RegisterUser.query.filter_by(token=token).count() > 0:
+            token = uuid.uuid4().hex
         #en_pw = encrypt(weasel, regForm.password1.data)
-        newUser = RegisterUser(username=regForm.email.data,value=regForm.password1.data,full_name=regForm.full_name.data,address=regForm.address.data,phone_no=regForm.phone_no.data,birthday=bday,gender=regForm.gender.data,id_type=regForm.govt_id_type.data,id_value=regForm.govt_id_value.data,status=1)
+        message = "Click on the following link to activate your membership: " + str(request.url_root) + "activate/" + str(token)
+        # try:
+        send_mail(subject="PIPOL KONEK Membership Activation", recipient=regForm.email.data, message=message)
+        newUser = RegisterUser(username=regForm.email.data,value=regForm.password1.data,full_name=regForm.full_name.data,address=regForm.address.data,phone_no=regForm.phone_no.data,birthday=bday,gender=regForm.gender.data,id_type=regForm.govt_id_type.data,id_value=regForm.govt_id_value.data,status=0,token=token)
         db.session.add(newUser)
-        db.session.commit()
-        return render_template('logout.html',message='Check your email to verify.')
+        if session.get('token'):
+            trans = Transaction.query.filter_by(token=session['token']).first()
+            trans.stage = 'pending_confirmation'
+            trans.date_modified = str(datetime.datetime.now())
+            db.session.commit()
+            return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
+        else:
+            return render_template('logout.html', message='There was an error in creating your registration. Please try again later.')
     if regForm.errors.items():
         flash("Your form has some invalid input(s). Please fix them, and re-enter passwords, before submitting.")
     return render_template('register.html', form=regForm, logo_path=getLogo(session['gw_id']))
+
+@app.route('/activate/<token>')
+def activateUser(token):
+    user = RegisterUser.query.filter_by(token=token).first()
+    if user:
+        if user.status == 1:
+            return render_template("logout.html", message="Your account has already been activated.", hideReturnToHome=True)
+        else:
+            user.status = 1
+            db.session.commit()
+            return render_template("logout.html", message="Your have successfully activated your account. You can now use the portal as a registered member.")
+    else:
+        return render_template("logout.html", message="You have submitted an invalid activation link.", hideReturnToHome=True)
+
 
 # Define login and registration forms (for flask-login)
 class LoginForm(form.Form):
     username = fields.StringField(validators=[validators.InputRequired()])
     password = fields.PasswordField(validators=[validators.InputRequired()])
+
 
     def validate_username(self, field):
         user = self.get_user()
