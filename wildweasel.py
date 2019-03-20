@@ -65,7 +65,7 @@ def hello_world():
 def ping():
     return "Pong"
 
-
+# <------ GET DATA LIMIT SETTINGS | @getLimit ------>
 def getLimit(gw_id, access_type, limit_type, default):
     _default = Data_Limits.query.filter_by(
         gw_id='default', access_type=access_type, limit_type=limit_type,status=1).first()
@@ -74,8 +74,7 @@ def getLimit(gw_id, access_type, limit_type, default):
         gw_id=gw_id, access_type=access_type, limit_type=limit_type,status=1).first()
     return default if limit == None else limit.value
 
-weasel = 'f4ec3eb1-d56b-490c-w1Ld-b83c-9dae8f0a555b-w3@s3L'
-
+# <------ CHECK IF TIME IN RANGE for uptime | @timeinRage ------>
 def time_in_range(start, end, x):
     """Return true if x is in the range [start, end]"""
     if start <= end:
@@ -83,8 +82,13 @@ def time_in_range(start, end, x):
     else:
         return start <= x or x <= end
 
+
+# <------ LOGIN ROUTE | @login ------>
+
 @app.route('/login/', methods=['GET', 'POST'])
 def login():
+
+    # LOGIN: POST request | @post
     if request.method == 'POST':
         srv = Client(server="192.168.88.146", secret=b"ap0ll0",
                      dict=Dictionary("dictionary"))
@@ -93,10 +97,15 @@ def login():
         package = request.form['package']
         token = session['token']
         session['logged'] = True
+
+        # <------ LOGIN, POST: FREE ACCESS | @loginFree ------>
         if package == "Free":
+            # get dynamic limits, @hardcoded defaults
             daily_limit = getLimit(session['gw_id'], 1, 'dd', 50000000)
             month_limit = getLimit(session['gw_id'], 1, 'mm', 1000000000)
-            session['type'] = 'Level One'
+            session['type'] = 'One-Click'
+
+            #check if device already exists in database
             trans = Transaction.query.filter_by(token=token).first()
             if Devices.query.filter_by(mac=trans.mac).count() > 0:
                 device = Devices.query.filter_by(mac=trans.mac).first()
@@ -116,9 +125,12 @@ def login():
                             device.month_data = 0
                             db.session.commit()
             else:
+                # add to database if new device
                 new_device = Devices(mac=trans.mac, free_data=0, month_data=0, last_active=str(datetime.datetime.now()), last_record=0)
                 db.session.add(new_device)
                 db.session.commit()
+
+            # authenticate free access device   
             trans.stage = "authenticated"
             trans.package = "One-Click"
             trans.uname = trans.mac
@@ -138,10 +150,15 @@ def login():
                 message = "Network error: " + error[1]
             return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
         else:
+            # <------ LOGIN, POST: REGISTERED ACCESS | @loginReg ------>
             if package == "Registered":
+                # get dynamic limits, @hardcoded defaults
                 daily_limit = getLimit(session['gw_id'], 2, 'dd', 100000000)
                 month_limit = getLimit(session['gw_id'], 2, 'mm', 2000000000)
-                session['type'] = 'Level Two'
+                session['type'] = 'Registered'
+
+                # check login credentials
+                # @tofollow: password encryption
                 session['uname'] = uname
                 req = srv.CreateAuthPacket(code=pyrad.packet.AccessRequest, User_Name=uname)
                 req["User-Password"] = req.PwCrypt(pword)
@@ -155,6 +172,8 @@ def login():
                 except socket.error as error:
                     message = "Network error: " + error[1]
                 if reply.code == pyrad.packet.AccessAccept:
+                    # if credentials accepted
+                    # if user already exists in db
                     if Registered_Users.query.filter_by(uname=uname).count() > 0:
                         user = Registered_Users.query.filter_by(uname=uname).first()
                         last_active_date = datetime.datetime.strptime(user.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
@@ -172,9 +191,12 @@ def login():
                                     user.month_data = 0
                                     db.session.commit()
                     else:
+                        # if new user
                         new_user = Registered_Users(uname=uname, registered_data=0, month_data=0, last_active=str(datetime.datetime.now()), last_record=0)
                         db.session.add(new_user)
                         db.session.commit()
+
+                    # update transaction table, authenticate user
                     trans = Transaction.query.filter_by(token=token).first()
                     trans.stage = "authenticated"
                     trans.package = "Registered"
@@ -194,11 +216,19 @@ def login():
                         message = "Network error: " + error[1]
                     return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
                 else:
+                    # if wrong credentials
                     message = "Access denied!"
                     resp = make_response(render_template('login.html', message=message))
                     resp.set_cookie('token', token)
                     return resp
+
+            # <------ LOGIN, POST: CERTIFIED ACCESS | @loginCert ------>
+            if trans.package == "Certified":
+                pass
+
     else:
+        # <------ LOGIN, GET: HOMEPAGE | @loginGet, @home ------>
+        # retrieve arguments from access point and save to session
         session.clear()
         session['gw_id'] = request.args.get('gw_id', default='', type=str)
         session['gw_sn'] = request.args.get('gw_sn', default='', type=str)
@@ -212,8 +242,12 @@ def login():
         session['token'] = request.cookies.get('token')
         session['device'] = request.headers.get('User-Agent')
         session['logged_in'] = True
+
+        # catch errors: if no IP, if not accessed through wifi, redirect
         if session['ip'] == '' or session['ip'] == None:
             return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
+        
+        # if portal downtime, don't proceed
         today = datetime.date.today().strftime('%Y-%m-%d')
         uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
         tz = get_localzone()
@@ -222,30 +256,32 @@ def login():
             end = datetime.time(*map(int, str(uptime.end_time).split(':')))
             if not time_in_range(start, end, tz.localize(datetime.datetime.now()).time()):
                 return render_template('logout.html', message=("Sorry, Pipol Konek is only available from " + start.strftime("%-I:%M %p") + " to " + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
+        
+        # if already accessed today, skip terms and language
+        # @tofollow: fix this
         if Transaction.query.filter_by(mac=session['mac']).filter_by(device=session['device']).filter(Transaction.date_modified.like(today + '%')).filter_by(stage='authenticated').count() > 0:
             lang = request.cookies.get("lang")
             send_to_access = True
         else:
             lang = None
-            send_to_access = False     
+            send_to_access = False
+
+        # check if device already saved in db   
         if Transaction.query.filter_by(mac=session['mac']).filter_by(device=session['device']).count() > 0:
             session['token'] = Transaction.query.filter_by(
                 mac=session['mac']).filter_by(device=session['device']).first().token
+        # if not, create new token
         if session['token'] == None:
             session['token'] = uuid.uuid4().hex
             while Transaction.query.filter_by(token=session['token']).count() > 0:
                 session['token'] = uuid.uuid4().hex
+            # create new transaction
             trans = Transaction(gw_sn=session['gw_sn'], gw_id=session['gw_id'], ip=session['ip'], gw_address=session['gw_address'], gw_port=session['gw_port'], mac=session['mac'], apmac=session['apmac'], ssid=session['ssid'], vlanid=session['vlanid'], token=session['token'], stage="capture", device=session['device'], date_modified=str(datetime.datetime.now()))
             db.session.add(trans)
             db.session.commit()
         else:
+            # if already exists, update the transaction row in db
             trans = Transaction.query.filter_by(token=session['token']).first()
-            # if trans.stage == "counters" or trans.stage == "authenticated":
-            #     if trans.package == "One-Click":
-            #         session["type"] = "Level One"
-            #     else:
-            #         session["type"] = "Level Two"
-            #     return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
             trans.gw_sn = session['gw_sn']
             trans.gw_id = session['gw_id']
             trans.ip = session['ip']
@@ -259,9 +295,11 @@ def login():
             trans.device = session['device']
             trans.date_modified = str(datetime.datetime.now())
             db.session.commit()
+        # show homepage / index page
         return render_template('index.html', send_to_access=send_to_access, lang=lang)
-    # return render_template('index.html')
 
+
+# <------ SELECT LANGUAGE PAGE ROUTE | @lang ------>
 
 @app.route('/lang/', methods=['GET', 'POST'])
 def lang():
@@ -276,6 +314,8 @@ def lang():
             return render_template('logout.html', message=("Sorry, Pipol Konek is only available from " + start.strftime("%-I:%M %p") + " to " + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
     return render_template('lang.html')
 
+
+# <------ TERMS & CONDITIONS PAGE ROUTE | @terms ----->
 
 @app.route('/terms/<lang>', methods=['GET', 'POST'])
 def terms(lang):
@@ -298,6 +338,8 @@ def terms(lang):
     resp.set_cookie('lang', lang)
     return resp
 
+
+# <------- GET LOGO SETTINGS | @getLogo ------>
 def getLogo(gw_id):
     logo = Logos.query.filter_by(gw_id=gw_id, status=1).first()
     if logo:
@@ -308,11 +350,17 @@ def getLogo(gw_id):
             return 'uploads/' + default.path
     return None
 
+
+# <------ TYPES OF ACCESS PAGE ROUTE | @access ------>
+
 @app.route('/access/')
 @app.route('/access/<lang>')
 def access(lang=None):
+    #redirect if not accessed through wifi
     if not session.get('ip'):
         return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
+    
+    #redirect if portal downtime
     uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
     tz = get_localzone()
     if uptime:
@@ -320,17 +368,25 @@ def access(lang=None):
         end = datetime.time(*map(int, str(uptime.end_time).split(':')))
         if not time_in_range(start, end, tz.localize(datetime.datetime.now()).time()):
             return render_template('logout.html', message=("Sorry, Pipol Konek is only available from " + start.strftime("%-I:%M %p") + " to " + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
+    
+    #get dynamic data limits, @hardcoded default values
     limit1 = "{0:.0f}".format(getLimit(session['gw_id'], 1, 'dd', 50000000)/1000000)
     limit2 = "{0:.0f}".format(getLimit(session['gw_id'], 2, 'dd', 100000000)/1000000)
     limit3 = "{0:.0f}".format(getLimit(session['gw_id'], 3, 'dd', 300000000)/1000000)
+    
     return render_template('access.html', lang=lang, limit1=limit1, limit2=limit2, limit3=limit3, logo_path=getLogo(session['gw_id']))
 
+
+# <------ REGISTERED ACCESS LOGIN ROUTE | @signin @regLogin------>
 
 @app.route('/login-reg/')
 @app.route('/login-reg/<lang>')
 def loginReg(lang=None):
+    #redirect if not accessed through wifi
     if not session.get('ip'):
         return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
+    
+    #redirect if portal downtime
     uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
     tz = get_localzone()
     if uptime:
@@ -338,8 +394,11 @@ def loginReg(lang=None):
         end = datetime.time(*map(int, str(uptime.end_time).split(':')))
         if not time_in_range(start, end, tz.localize(datetime.datetime.now()).time()):
             return render_template('logout.html', message=("Sorry, Pipol Konek is only available from " + start.strftime("%-I:%M %p") + " to " + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
+    
     return render_template('login.html', lang=lang, logo_path=getLogo(session['gw_id']))
 
+
+# <------ AUTHENTICATION ROUTE | @auth ------->
 
 @app.route('/auth/')
 def auth():
@@ -354,6 +413,7 @@ def auth():
     acct_req["Framed-IP-Address"] = trans.ip
     acct_req["Acct-Session-Id"] = trans.mac
 
+    # Stop connection during logout stage and update database
     if stage_n == "logout":
         trans.stage = "logout"
         trans.date_modified = str(datetime.datetime.now())
@@ -363,18 +423,30 @@ def auth():
     if trans.stage == "logout" or trans.stage == "end_email_validation":
         return "Auth: 0"
 
+    # <------ AUTHENTICATION FOR EMAIL VALIDATION | @authEmail ------>
+
     if trans.stage == "pending_confirmation" or trans.stage == "start_email_validation":
-        last_modified = datetime.datetime.strptime(trans.date_modified, '%Y-%m-%d %H:%M:%S.%f')
-        elapsed_time = datetime.datetime.now() - last_modified
-        if elapsed_time <= datetime.timedelta(minutes=15):
-            trans.stage = "start_email_validation"
-            db.session.commit()
-            return "Auth: 1"
-        else:
+        # limit to 20 MB
+        if incoming_n + outgoing_n > 20000000:
             trans.stage = "end_email_validation"
             trans.date_modified = str(datetime.datetime.now())
             db.session.commit()
             return "Auth: 0"
+        # limit to 10 minutes
+        last_modified = datetime.datetime.strptime(trans.date_modified, '%Y-%m-%d %H:%M:%S.%f')
+        elapsed_time = datetime.datetime.now() - last_modified
+        if elapsed_time <= datetime.timedelta(minutes=10):
+            trans.stage = "start_email_validation"
+            db.session.commit()
+            return "Auth: 1"
+        else:
+            # end if exceeded
+            trans.stage = "end_email_validation"
+            trans.date_modified = str(datetime.datetime.now())
+            db.session.commit()
+            return "Auth: 0"
+
+    # <------ AUTHENTICATION FOR REGISTERED ACCESS | @authReg ------>
 
     if trans.package == "Registered":
         daily_limit = getLimit(trans.gw_id, 2, 'dd', 100000000)
@@ -428,60 +500,74 @@ def auth():
             user.last_active = str(datetime.datetime.now())
             db.session.commit()
     else:
-        device = Devices.query.filter_by(mac=trans.mac).first()
-        daily_limit = getLimit(trans.gw_id, 1, 'dd', 50000000)
-        month_limit = getLimit(trans.gw_id, 1, 'mm', 1000000000)
-        new_record = incoming_n + outgoing_n
-        if new_record < device.last_record:
-            device.last_record = new_record
-        last_active_date = datetime.datetime.strptime(device.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
-        if (device.free_data + (incoming_n + outgoing_n - device.last_record)) >= daily_limit:
-            acct_req["Acct-Input-Octets"] = incoming_n
-            acct_req["Acct-Output-Octets"] = outgoing_n
-            acct_req["Acct-Status-Type"] = "Stop"
-            acct_req["Acct-Terminate-Cause"] = "Host-Request"
-            try:
-                reply = srv.SendPacket(acct_req)
-            except pyrad.client.Timeout:
-                message = "RADIUS server does not reply"
-            except socket.error as error:
-                message = "Network error: " + error[1]
-            if last_active_date == datetime.date.today():
-                device.free_data = (device.free_data + (new_record - device.last_record))
+
+        # <------ AUTHENTICATION FOR FREE ACCESS | @authFree ------>
+
+        if trans.package == "One-Click":            
+            device = Devices.query.filter_by(mac=trans.mac).first()
+            daily_limit = getLimit(trans.gw_id, 1, 'dd', 50000000)
+            month_limit = getLimit(trans.gw_id, 1, 'mm', 1000000000)
+            new_record = incoming_n + outgoing_n
+            if new_record < device.last_record:
+                device.last_record = new_record
+            last_active_date = datetime.datetime.strptime(device.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
+            if (device.free_data + (incoming_n + outgoing_n - device.last_record)) >= daily_limit:
+                acct_req["Acct-Input-Octets"] = incoming_n
+                acct_req["Acct-Output-Octets"] = outgoing_n
+                acct_req["Acct-Status-Type"] = "Stop"
+                acct_req["Acct-Terminate-Cause"] = "Host-Request"
+                try:
+                    reply = srv.SendPacket(acct_req)
+                except pyrad.client.Timeout:
+                    message = "RADIUS server does not reply"
+                except socket.error as error:
+                    message = "Network error: " + error[1]
+                if last_active_date == datetime.date.today():
+                    device.free_data = (device.free_data + (new_record - device.last_record))
+                else:
+                    device.free_data = 101
+                if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
+                    device.month_data = (device.month_data + (new_record - device.last_record))
+                else:
+                    device.month_data = 0
+                device.last_record = 0
+                db.session.commit()
+                return "Auth: 0"
             else:
-                device.free_data = 101
-            if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
-                device.month_data = (device.month_data + (new_record - device.last_record))
-            else:
-                device.month_data = 0
-            device.last_record = 0
-            db.session.commit()
-            return "Auth: 0"
-        else:
-            acct_req["Acct-Input-Octets"] = incoming_n
-            acct_req["Acct-Output-Octets"] = outgoing_n
-            acct_req["Acct-Status-Type"] = "Interim-Update"
-            try:
-                reply = srv.SendPacket(acct_req)
-            except pyrad.client.Timeout:
-                message = "RADIUS server does not reply"
-            except socket.error as error:
-                message = "Network error: " + error[1]
-            if last_active_date == datetime.date.today():
-                device.free_data = (device.free_data + (new_record - device.last_record))
-            else:
-                device.free_data = 0
-            if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
-                device.month_data = (device.month_data + (new_record - device.last_record))
-            else:
-                device.month_data = 0
-            device.last_record = new_record
-            device.last_active = str(datetime.datetime.now())
-            db.session.commit()
+                acct_req["Acct-Input-Octets"] = incoming_n
+                acct_req["Acct-Output-Octets"] = outgoing_n
+                acct_req["Acct-Status-Type"] = "Interim-Update"
+                try:
+                    reply = srv.SendPacket(acct_req)
+                except pyrad.client.Timeout:
+                    message = "RADIUS server does not reply"
+                except socket.error as error:
+                    message = "Network error: " + error[1]
+                if last_active_date == datetime.date.today():
+                    device.free_data = (device.free_data + (new_record - device.last_record))
+                else:
+                    device.free_data = 0
+                if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
+                    device.month_data = (device.month_data + (new_record - device.last_record))
+                else:
+                    device.month_data = 0
+                device.last_record = new_record
+                device.last_active = str(datetime.datetime.now())
+                db.session.commit()
+        
+        # <------ AUTHENTICATION FOR CERTIFIED ACCESS | @authCert ------>
+
+        if trans.package == "Certified":
+            pass
+
+    # authentication success, update database
     trans.stage = stage_n
     trans.date_modified = str(datetime.datetime.now())
     db.session.commit()
     return "Auth: 1"
+
+
+# <------ RETRIEVE ANNOUNCEMENT IMAGE SETTINGS | @getAnnouncement ------>
 
 def getAnnouncement(gw_id):
     announcement = Announcements.query.filter_by(gw_id=gw_id, status=1).first()
@@ -493,22 +579,25 @@ def getAnnouncement(gw_id):
             return 'uploads/' + default.path
     return None
 
+
+# <------ PORTAL | @portal  ------>
+
 @app.route('/portal/')
 def portal():
     if not session.get('type'):
         today = datetime.date.today().strftime('%Y-%m-%d')
         trans = Transaction.query.filter_by(mac=session['mac']).filter_by(device=session['device']).filter(Transaction.date_modified.like(today + '%')).first()
         if trans:
-            if trans.package == "One-Click":
-                session['type'] = "Level One"
-            else:
-                session['type'] = "Level Two"
+            session["type"] = trans.package
         else:
             return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
     trans = Transaction.query.filter_by(token=session['token']).first()
+    # Splash page/message for authenticated users for email validation
     if trans and trans.stage == 'start_email_validation':
         return render_template('logout.html',message='Check your email to verify. You are given fifteen (15) minutes of internet connection to activate your email.', hideReturnToHome=True) 
-    if session["type"] == "Level One":
+    # Calculate Usage and Limits for Free Access
+    if session["type"] == "One-Click":
+        display_type = "Level One"
         daily_limit = getLimit(session['gw_id'], 1, 'dd', 50000000)
         month_limit = getLimit(session['gw_id'], 1, 'mm', 1000000000)
         device = Devices.query.filter_by(mac=session["mac"]).first()
@@ -519,30 +608,27 @@ def portal():
         daily_remaining = "{0:.2f}".format(day_rem / 1000000)
         monthly_remaining = "{0:.2f}".format(month_rem / 1000000)
     else:
-        daily_limit = getLimit(session['gw_id'], 2, 'dd', 100000000)
-        month_limit = getLimit(session['gw_id'], 2, 'mm', 2000000000)
-        user = Registered_Users.query.filter_by(uname=session["uname"]).first()
-        daily_used = "{0:.2f}".format(user.registered_data / 1000000)
-        monthly_used = "{0:.2f}".format(user.month_data / 1000000)
-        day_rem = daily_limit - user.registered_data if daily_limit - user.registered_data >= 0 else 0
-        month_rem = month_limit - user.month_data if month_limit - user.month_data >= 0 else 0
-        daily_remaining = "{0:.2f}".format((daily_limit - user.registered_data) / 1000000)
-        monthly_remaining = "{0:.2f}".format((month_limit - user.month_data) / 1000000)
+        # Calculate Usage and Limits for Registered Access
+        if session["type"] == "Registered":
+            display_type = "Level Two"
+            daily_limit = getLimit(session['gw_id'], 2, 'dd', 100000000)
+            month_limit = getLimit(session['gw_id'], 2, 'mm', 2000000000)
+            user = Registered_Users.query.filter_by(uname=session["uname"]).first()
+            daily_used = "{0:.2f}".format(user.registered_data / 1000000)
+            monthly_used = "{0:.2f}".format(user.month_data / 1000000)
+            day_rem = daily_limit - user.registered_data if daily_limit - user.registered_data >= 0 else 0
+            month_rem = month_limit - user.month_data if month_limit - user.month_data >= 0 else 0
+            daily_remaining = "{0:.2f}".format((daily_limit - user.registered_data) / 1000000)
+            monthly_remaining = "{0:.2f}".format((month_limit - user.month_data) / 1000000)
+        else:
+            # Certified Access computations here
+            pass
     ddd_limit = "{0:.2f}".format(daily_limit/1000000000)
     mmm_limit = "{0:.2f}".format(month_limit/1000000000)
-    return render_template('portal.html', daily_used=daily_used, monthly_used=monthly_used, daily_remaining=daily_remaining, monthly_remaining=monthly_remaining, daily_limit=ddd_limit, monthly_limit=mmm_limit, ad_img_path=getAnnouncement(session['gw_id']))
+    return render_template('portal.html', daily_used=daily_used, monthly_used=monthly_used, daily_remaining=daily_remaining, monthly_remaining=monthly_remaining, daily_limit=ddd_limit, monthly_limit=mmm_limit, ad_img_path=getAnnouncement(session['gw_id']), display_type=display_type))
 
 
-@app.route('/logout/')
-def logout():
-    if session.get('token'):
-        trans = Transaction.query.filter_by(token=session['token']).first()
-        if trans:
-            trans.stage = "logout"
-            trans.date_modified = str(datetime.datetime.now())
-            db.session.commit()
-            print("i entered here")
-    return render_template('logout.html', message="You have logged out. Your Pipol Konek connection will automatically terminate after one (1) minute.")
+# <------ REGISTERED MEMBER SIGN UP FORM | @regForm ------>
 
 class RegisterForm(FlaskForm):
     def birthdayValidator(form, field):
@@ -577,6 +663,8 @@ class RegisterForm(FlaskForm):
     password1 = PasswordField('password1', validators=[passwordValidator, validators.InputRequired(), validators.Regexp(r'^[^\s]+$',message='No spaces allowed.'), validators.Length(min=6,message="Password must be at least 6 characters.")])
     password2 = PasswordField('password2', validators=[validators.InputRequired()])
 
+# <------ MEMBER REGISTRATION ROUTE | @register ------>
+
 @app.route('/register/', methods=['GET', 'POST'])
 def register():
     if not session.get('ip'):
@@ -594,7 +682,6 @@ def register():
         token = uuid.uuid4().hex
         while RegisterUser.query.filter_by(token=token).count() > 0:
             token = uuid.uuid4().hex
-        #en_pw = encrypt(weasel, regForm.password1.data)
         message = "Click on the following link to activate your membership: " + str(request.url_root) + "activate/" + str(token)
         # try:
         send_mail(subject="PIPOL KONEK Membership Activation", recipient=regForm.email.data, message=message)
@@ -612,6 +699,9 @@ def register():
         flash("Your form has some invalid input(s). Please fix them, and re-enter passwords, before submitting.")
     return render_template('register.html', form=regForm, logo_path=getLogo(session['gw_id']))
 
+
+# <------ REGISTERED MEMBER ACTIVATION | @regActivate ------>
+
 @app.route('/activate/<token>')
 def activateUser(token):
     user = RegisterUser.query.filter_by(token=token).first()
@@ -625,6 +715,36 @@ def activateUser(token):
     else:
         return render_template("logout.html", message="You have submitted an invalid activation link.", hideReturnToHome=True)
 
+
+# <------ CERTIFIED ACCESS VERIFICATION | @certVerify ------>
+
+@app.route("/cert/")
+def cert():
+    verify = request.environ.get('SSL_CLIENT_VERIFY')
+    if verify == "SUCCESS":
+        session['type'] = "Certified"
+    return verify
+
+
+# <------ LOGOUT | @logout ------>
+
+# @tofollow: not yet disconnecting 
+@app.route('/logout/')
+def logout():
+    if session.get('token'):
+        trans = Transaction.query.filter_by(token=session['token']).first()
+        if trans:
+            trans.stage = "logout"
+            trans.date_modified = str(datetime.datetime.now())
+            db.session.commit()
+            print("i entered here")
+    return render_template('logout.html', message="You have logged out. Your Pipol Konek connection will automatically terminate after one (1) minute.")
+
+
+
+
+
+# /------ ADMIN INTERFACE STARTS HERE ------/ #
 
 # Define login and registration forms (for flask-login)
 class LoginForm(form.Form):
