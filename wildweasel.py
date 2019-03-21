@@ -12,7 +12,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from pyrad.dictionary import Dictionary
 from pyrad.client import Client
 from pyrad.packet import Packet
-from models import db, Transaction, Devices, Registered_Users, Admin_Users, Gateways, Data_Limits, Uptimes, Announcements, Logos, RegisterUser
+from models import db, Transaction, Devices, Registered_Users, CertifiedDevices, Admin_Users, Gateways, Data_Limits, Uptimes, Announcements, Logos, RegisterUser
 from googletrans import Translator
 import pyrad.packet
 import datetime, socket, uuid, os, re
@@ -96,7 +96,6 @@ def login():
         pword = request.form['pword']
         package = request.form['package']
         token = session['token']
-        session['logged'] = True
 
         # <------ LOGIN, POST: FREE ACCESS | @loginFree ------>
         if package == "Free":
@@ -223,25 +222,78 @@ def login():
                     return resp
 
             # <------ LOGIN, POST: CERTIFIED ACCESS | @loginCert ------>
-            if trans.package == "Certified":
-                pass
+            if package == "Certified":
+                verify = request.environ.get('SSL_CLIENT_VERIFY')
+                uname = request.environ.get('SSL_CLIENT_S_DN_CN')
+                if (not verify == "SUCCESS") or (not uname):
+                    return render_template('logout.html', message="Your browser/device certificate does not exist or is invalid. Please contact DICT to apply for a valid certificate.")
+                else:
+                    session['uname'] = uname
+                # get dynamic limits, @hardcoded defaults
+                daily_limit = getLimit(session['gw_id'], 3, 'dd', 300000000)
+                month_limit = getLimit(session['gw_id'], 3, 'mm', 3000000000)
+                session['type'] = 'Certified'
+
+                #check if device already exists in database
+                trans = Transaction.query.filter_by(token=token).first()
+                if CertifiedDevices.query.filter_by(mac=trans.mac).count() > 0:
+                    device = CertifiedDevices.query.filter_by(mac=trans.mac).first()
+                    last_active_date = datetime.datetime.strptime(
+                        device.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
+                    if device.cert_data >= daily_limit:
+                        if last_active_date == datetime.date.today():
+                            return render_template('logout.html', message="You have exceeded your data usage limit for today.")
+                        else:
+                            device.cert_data = 0
+                            db.session.commit()
+                    else:
+                        if device.month_data >= month_limit:
+                            if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
+                                return render_template('logout.html', message="You have exceeded your data usage limit for this month.")
+                            else:
+                                device.month_data = 0
+                                db.session.commit()
+                else:
+                    # add to database if new device
+                    new_device = CertifiedDevices(mac=trans.mac, common_name=session['uname'], cert_data=0, month_data=0, last_active=str(datetime.datetime.now()), last_record=0)
+                    db.session.add(new_device)
+                    db.session.commit()
+                
+                # authenticate certified access device   
+                trans.stage = "authenticated"
+                trans.package = "Certified"
+                trans.uname = uname
+                trans.date_modified = str(datetime.datetime.now())
+                db.session.commit()
+                acct_req = srv.CreateAcctPacket(User_Name=trans.mac)
+                acct_req["NAS-Identifier"] = trans.gw_id
+                acct_req["Framed-IP-Address"] = trans.ip
+                acct_req["Acct-Session-Id"] = trans.mac
+                acct_req["Acct-Status-Type"] = "Start"
+                try:
+                    reply = srv.SendPacket(acct_req)
+                except pyrad.client.Timeout:
+                    message = "RADIUS server does not reply"
+                except socket.error as error:
+                    message = "Network error: " + error[1]
+                return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
 
     else:
-        # <------ LOGIN, GET: HOMEPAGE | @loginGet, @home ------>
+        # <------ LOGIN, GET: HOMEPAGE | @loginGet, @home ----@cert-->
         # retrieve arguments from access point and save to session
-        session.clear()
-        session['gw_id'] = request.args.get('gw_id', default='', type=str)
-        session['gw_sn'] = request.args.get('gw_sn', default='', type=str)
-        session['gw_address'] = request.args.get('gw_address', default='', type=str)
-        session['gw_port'] = request.args.get('gw_port', default='', type=str)
-        session['ip'] = request.args.get('ip', default='', type=str)
-        session['mac'] = request.args.get('mac', default='', type=str)
-        session['apmac'] = request.args.get('apmac', default='', type=str)
-        session['ssid'] = request.args.get('ssid', default='', type=str)
-        session['vlanid'] = request.args.get('vlanid', default='', type=str)
-        session['token'] = request.cookies.get('token')
-        session['device'] = request.headers.get('User-Agent')
-        session['logged_in'] = True
+        if not session:
+            session['gw_id'] = request.args.get('gw_id', default='', type=str)
+            session['gw_sn'] = request.args.get('gw_sn', default='', type=str)
+            session['gw_address'] = request.args.get('gw_address', default='', type=str)
+            session['gw_port'] = request.args.get('gw_port', default='', type=str)
+            session['ip'] = request.args.get('ip', default='', type=str)
+            session['mac'] = request.args.get('mac', default='', type=str)
+            session['apmac'] = request.args.get('apmac', default='', type=str)
+            session['ssid'] = request.args.get('ssid', default='', type=str)
+            session['vlanid'] = request.args.get('vlanid', default='', type=str)
+            session['token'] = request.cookies.get('token')
+            session['device'] = request.headers.get('User-Agent')
+            session['logged_in'] = True
 
         # catch errors: if no IP, if not accessed through wifi, redirect
         if session['ip'] == '' or session['ip'] == None:
@@ -435,7 +487,7 @@ def auth():
         # limit to 10 minutes
         last_modified = datetime.datetime.strptime(trans.date_modified, '%Y-%m-%d %H:%M:%S.%f')
         elapsed_time = datetime.datetime.now() - last_modified
-        if elapsed_time <= datetime.timedelta(minutes=10):
+        if elapsed_time <= datetime.timedelta(minutes=5):
             trans.stage = "start_email_validation"
             db.session.commit()
             return "Auth: 1"
@@ -558,7 +610,56 @@ def auth():
         # <------ AUTHENTICATION FOR CERTIFIED ACCESS | @authCert ------>
 
         if trans.package == "Certified":
-            pass
+            device = CertifiedDevices.query.filter_by(mac=trans.mac).first()
+            daily_limit = getLimit(trans.gw_id, 3, 'dd', 300000000)
+            month_limit = getLimit(trans.gw_id, 3, 'mm', 3000000000)
+            new_record = incoming_n + outgoing_n
+            if new_record < device.last_record:
+                device.last_record = new_record
+            last_active_date = datetime.datetime.strptime(device.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
+            if (device.cert_data + (incoming_n + outgoing_n - device.last_record)) >= daily_limit:
+                acct_req["Acct-Input-Octets"] = incoming_n
+                acct_req["Acct-Output-Octets"] = outgoing_n
+                acct_req["Acct-Status-Type"] = "Stop"
+                acct_req["Acct-Terminate-Cause"] = "Host-Request"
+                try:
+                    reply = srv.SendPacket(acct_req)
+                except pyrad.client.Timeout:
+                    message = "RADIUS server does not reply"
+                except socket.error as error:
+                    message = "Network error: " + error[1]
+                if last_active_date == datetime.date.today():
+                    device.cert_data = (device.cert_data + (new_record - device.last_record))
+                else:
+                    device.cert_data = 101
+                if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
+                    device.month_data = (device.month_data + (new_record - device.last_record))
+                else:
+                    device.month_data = 0
+                device.last_record = 0
+                db.session.commit()
+                return "Auth: 0"
+            else:
+                acct_req["Acct-Input-Octets"] = incoming_n
+                acct_req["Acct-Output-Octets"] = outgoing_n
+                acct_req["Acct-Status-Type"] = "Interim-Update"
+                try:
+                    reply = srv.SendPacket(acct_req)
+                except pyrad.client.Timeout:
+                    message = "RADIUS server does not reply"
+                except socket.error as error:
+                    message = "Network error: " + error[1]
+                if last_active_date == datetime.date.today():
+                    device.cert_data = (device.cert_data + (new_record - device.last_record))
+                else:
+                    device.cert_data = 0
+                if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
+                    device.month_data = (device.month_data + (new_record - device.last_record))
+                else:
+                    device.month_data = 0
+                device.last_record = new_record
+                device.last_active = str(datetime.datetime.now())
+                db.session.commit()
 
     # authentication success, update database
     trans.stage = stage_n
@@ -594,7 +695,7 @@ def portal():
     trans = Transaction.query.filter_by(token=session['token']).first()
     # Splash page/message for authenticated users for email validation
     if trans and trans.stage == 'start_email_validation':
-        return render_template('logout.html',message='Check your email to verify. You are given fifteen (15) minutes of internet connection to activate your email.', hideReturnToHome=True) 
+        return render_template('logout.html',message='Check your email to verify. You are given five (5) minutes of internet connection to activate your email.', hideReturnToHome=True) 
     # Calculate Usage and Limits for Free Access
     if session["type"] == "One-Click":
         display_type = "Level One"
@@ -625,7 +726,7 @@ def portal():
             pass
     ddd_limit = "{0:.2f}".format(daily_limit/1000000000)
     mmm_limit = "{0:.2f}".format(month_limit/1000000000)
-    return render_template('portal.html', daily_used=daily_used, monthly_used=monthly_used, daily_remaining=daily_remaining, monthly_remaining=monthly_remaining, daily_limit=ddd_limit, monthly_limit=mmm_limit, ad_img_path=getAnnouncement(session['gw_id']), display_type=display_type))
+    return render_template('portal.html', daily_used=daily_used, monthly_used=monthly_used, daily_remaining=daily_remaining, monthly_remaining=monthly_remaining, daily_limit=ddd_limit, monthly_limit=mmm_limit, ad_img_path=getAnnouncement(session['gw_id']), display_type=display_type)
 
 
 # <------ REGISTERED MEMBER SIGN UP FORM | @regForm ------>

@@ -108,6 +108,27 @@ class Registered_Users(BaseModel, db.Model):
         self.last_record = kwargs.get('last_record')
         self.last_active = kwargs.get('last_active')
 
+class CertifiedDevices(BaseModel, db.Model):
+    """Model for the devices table"""
+    __tablename__ = 'certified'
+
+    id = db.Column(db.Integer, primary_key=True)
+    mac = db.Column(db.String)
+    common_name = db.Column(db.String)
+    cert_data = db.Column(db.Float)
+    month_data = db.Column(db.Float)
+    last_record = db.Column(db.Float)
+    last_active = db.Column(db.String)
+
+    def __init__(self, **kwargs):
+        self.id = kwargs.get('id')
+        self.mac = kwargs.get('mac')
+        self.common_name = kwargs.get('common_name')
+        self.cert_data = kwargs.get('cert_data')
+        self.month_data = kwargs.get('month_data')
+        self.last_record = kwargs.get('last_record')
+        self.last_active = kwargs.get('last_active')
+
 
 class Admin_Users(db.Model):
     """Model for the admin users table"""
