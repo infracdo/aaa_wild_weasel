@@ -156,6 +156,15 @@ def login():
                 month_limit = getLimit(session['gw_id'], 2, 'mm', 2000000000)
                 session['type'] = 'Registered'
 
+                # check status
+                reguser = RegisterUser.query.filter_by(username=uname).first()
+                if reguser:
+                    if reguser.status == 0:
+                        message = "Access denied! Your email address has not been verified."
+                        resp = make_response(render_template('login.html', message=message))
+                        resp.set_cookie('token', token)
+                        return resp
+
                 # check login credentials
                 # @tofollow: password encryption
                 session['uname'] = uname
@@ -221,65 +230,8 @@ def login():
                     resp.set_cookie('token', token)
                     return resp
 
-            # <------ LOGIN, POST: CERTIFIED ACCESS | @loginCert ------>
-            if package == "Certified":
-                verify = request.environ.get('SSL_CLIENT_VERIFY')
-                uname = request.environ.get('SSL_CLIENT_S_DN_CN')
-                if (not verify == "SUCCESS") or (not uname):
-                    return render_template('logout.html', message="Your browser/device certificate does not exist or is invalid. Please contact DICT to apply for a valid certificate.")
-                else:
-                    session['uname'] = uname
-                # get dynamic limits, @hardcoded defaults
-                daily_limit = getLimit(session['gw_id'], 3, 'dd', 300000000)
-                month_limit = getLimit(session['gw_id'], 3, 'mm', 3000000000)
-                session['type'] = 'Certified'
-
-                #check if device already exists in database
-                trans = Transaction.query.filter_by(token=token).first()
-                if CertifiedDevices.query.filter_by(mac=trans.mac).count() > 0:
-                    device = CertifiedDevices.query.filter_by(mac=trans.mac).first()
-                    last_active_date = datetime.datetime.strptime(
-                        device.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
-                    if device.cert_data >= daily_limit:
-                        if last_active_date == datetime.date.today():
-                            return render_template('logout.html', message="You have exceeded your data usage limit for today.")
-                        else:
-                            device.cert_data = 0
-                            db.session.commit()
-                    else:
-                        if device.month_data >= month_limit:
-                            if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
-                                return render_template('logout.html', message="You have exceeded your data usage limit for this month.")
-                            else:
-                                device.month_data = 0
-                                db.session.commit()
-                else:
-                    # add to database if new device
-                    new_device = CertifiedDevices(mac=trans.mac, common_name=session['uname'], cert_data=0, month_data=0, last_active=str(datetime.datetime.now()), last_record=0)
-                    db.session.add(new_device)
-                    db.session.commit()
-                
-                # authenticate certified access device   
-                trans.stage = "authenticated"
-                trans.package = "Certified"
-                trans.uname = uname
-                trans.date_modified = str(datetime.datetime.now())
-                db.session.commit()
-                acct_req = srv.CreateAcctPacket(User_Name=trans.mac)
-                acct_req["NAS-Identifier"] = trans.gw_id
-                acct_req["Framed-IP-Address"] = trans.ip
-                acct_req["Acct-Session-Id"] = trans.mac
-                acct_req["Acct-Status-Type"] = "Start"
-                try:
-                    reply = srv.SendPacket(acct_req)
-                except pyrad.client.Timeout:
-                    message = "RADIUS server does not reply"
-                except socket.error as error:
-                    message = "Network error: " + error[1]
-                return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
-
     else:
-        # <------ LOGIN, GET: HOMEPAGE | @loginGet, @home ----@cert-->
+        # <------ LOGIN, GET: HOMEPAGE | @loginGet, @home ------>
         # retrieve arguments from access point and save to session
         if not session:
             session['gw_id'] = request.args.get('gw_id', default='', type=str)
@@ -719,11 +671,20 @@ def portal():
             monthly_used = "{0:.2f}".format(user.month_data / 1000000)
             day_rem = daily_limit - user.registered_data if daily_limit - user.registered_data >= 0 else 0
             month_rem = month_limit - user.month_data if month_limit - user.month_data >= 0 else 0
-            daily_remaining = "{0:.2f}".format((daily_limit - user.registered_data) / 1000000)
-            monthly_remaining = "{0:.2f}".format((month_limit - user.month_data) / 1000000)
+            daily_remaining = "{0:.2f}".format((day_rem) / 1000000)
+            monthly_remaining = "{0:.2f}".format((month_rem) / 1000000)
         else:
             # Certified Access computations here
-            pass
+            display_type = "Level Three"
+            daily_limit = getLimit(session['gw_id'], 3, 'dd', 300000000)
+            month_limit = getLimit(session['gw_id'], 3, 'mm', 3000000000)
+            device = CertifiedDevices.query.filter_by(mac=session["mac"]).first()
+            daily_used = "{0:.2f}".format(device.cert_data / 1000000)
+            monthly_used = "{0:.2f}".format(device.month_data / 1000000)
+            day_rem = daily_limit - device.cert_data if daily_limit - device.cert_data >= 0 else 0
+            month_rem = month_limit - device.month_data if month_limit - device.month_data >= 0 else 0
+            daily_remaining = "{0:.2f}".format(day_rem / 1000000)
+            monthly_remaining = "{0:.2f}".format(month_rem / 1000000)
     ddd_limit = "{0:.2f}".format(daily_limit/1000000000)
     mmm_limit = "{0:.2f}".format(month_limit/1000000000)
     return render_template('portal.html', daily_used=daily_used, monthly_used=monthly_used, daily_remaining=daily_remaining, monthly_remaining=monthly_remaining, daily_limit=ddd_limit, monthly_limit=mmm_limit, ad_img_path=getAnnouncement(session['gw_id']), display_type=display_type)
@@ -817,14 +778,66 @@ def activateUser(token):
         return render_template("logout.html", message="You have submitted an invalid activation link.", hideReturnToHome=True)
 
 
-# <------ CERTIFIED ACCESS VERIFICATION | @certVerify ------>
+# <------ CERTIFIED ACCESS AUTHENTICATION | @certVerify @loginCert ------>
 
 @app.route("/cert/")
 def cert():
     verify = request.environ.get('SSL_CLIENT_VERIFY')
-    if verify == "SUCCESS":
-        session['type'] = "Certified"
-    return verify
+    uname = request.environ.get('SSL_CLIENT_S_DN_CN')
+    if verify == "SUCCESS" and session.get('token'):
+        srv = Client(server="192.168.88.146", secret=b"ap0ll0",
+                     dict=Dictionary("dictionary"))
+        # get dynamic limits, @hardcoded defaults
+        daily_limit = getLimit(session['gw_id'], 3, 'dd', 300000000)
+        month_limit = getLimit(session['gw_id'], 3, 'mm', 3000000000)
+        session['type'] = 'Certified'
+        session['uname'] = uname
+
+        #check if device already exists in database
+        trans = Transaction.query.filter_by(token=session['token']).first()
+        if CertifiedDevices.query.filter_by(mac=trans.mac).count() > 0:
+            device = CertifiedDevices.query.filter_by(mac=trans.mac).first()
+            last_active_date = datetime.datetime.strptime(
+                device.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
+            if device.cert_data >= daily_limit:
+                if last_active_date == datetime.date.today():
+                    return render_template('logout.html', message="You have exceeded your data usage limit for today.")
+                else:
+                    device.cert_data = 0
+                    db.session.commit()
+            else:
+                if device.month_data >= month_limit:
+                    if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
+                        return render_template('logout.html', message="You have exceeded your data usage limit for this month.")
+                    else:
+                        device.month_data = 0
+                        db.session.commit()
+        else:
+            # add to database if new device
+            new_device = CertifiedDevices(mac=trans.mac, common_name=uname, cert_data=0, month_data=0, last_active=str(datetime.datetime.now()), last_record=0)
+            db.session.add(new_device)
+            db.session.commit()
+        
+        # authenticate certified access device   
+        trans.stage = "authenticated"
+        trans.package = "Certified"
+        trans.uname = uname
+        trans.date_modified = str(datetime.datetime.now())
+        db.session.commit()
+        acct_req = srv.CreateAcctPacket(User_Name=trans.mac)
+        acct_req["NAS-Identifier"] = trans.gw_id
+        acct_req["Framed-IP-Address"] = trans.ip
+        acct_req["Acct-Session-Id"] = trans.mac
+        acct_req["Acct-Status-Type"] = "Start"
+        try:
+            reply = srv.SendPacket(acct_req)
+        except pyrad.client.Timeout:
+            message = "RADIUS server does not reply"
+        except socket.error as error:
+            message = "Network error: " + error[1]
+        return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
+    else:
+        return render_template('logout.html', message="Your browser/device certificate does not exist or is invalid. Please contact DICT to apply for a valid certificate.")
 
 
 # <------ LOGOUT | @logout ------>
