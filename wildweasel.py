@@ -233,19 +233,20 @@ def login():
     else:
         # <------ LOGIN, GET: HOMEPAGE | @loginGet, @home ------>
         # retrieve arguments from access point and save to session
-        if not session:
-            session['gw_id'] = request.args.get('gw_id', default='', type=str)
-            session['gw_sn'] = request.args.get('gw_sn', default='', type=str)
-            session['gw_address'] = request.args.get('gw_address', default='', type=str)
-            session['gw_port'] = request.args.get('gw_port', default='', type=str)
-            session['ip'] = request.args.get('ip', default='', type=str)
-            session['mac'] = request.args.get('mac', default='', type=str)
-            session['apmac'] = request.args.get('apmac', default='', type=str)
-            session['ssid'] = request.args.get('ssid', default='', type=str)
-            session['vlanid'] = request.args.get('vlanid', default='', type=str)
-            session['token'] = request.cookies.get('token')
-            session['device'] = request.headers.get('User-Agent')
-            session['logged_in'] = True
+        # @tofollow
+
+        session['gw_id'] = request.args.get('gw_id', default='', type=str)
+        session['gw_sn'] = request.args.get('gw_sn', default='', type=str)
+        session['gw_address'] = request.args.get('gw_address', default='', type=str)
+        session['gw_port'] = request.args.get('gw_port', default='', type=str)
+        session['ip'] = request.args.get('ip', default='', type=str)
+        session['mac'] = request.args.get('mac', default='', type=str)
+        session['apmac'] = request.args.get('apmac', default='', type=str)
+        session['ssid'] = request.args.get('ssid', default='', type=str)
+        session['vlanid'] = request.args.get('vlanid', default='', type=str)
+        session['token'] = request.cookies.get('token')
+        session['device'] = request.headers.get('User-Agent')
+        session['logged_in'] = True
 
         # catch errors: if no IP, if not accessed through wifi, redirect
         if session['ip'] == '' or session['ip'] == None:

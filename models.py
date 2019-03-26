@@ -108,6 +108,7 @@ class Registered_Users(BaseModel, db.Model):
         self.last_record = kwargs.get('last_record')
         self.last_active = kwargs.get('last_active')
 
+
 class CertifiedDevices(BaseModel, db.Model):
     """Model for the devices table"""
     __tablename__ = 'certified'
@@ -217,7 +218,8 @@ class Data_Limits(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     access_type = db.Column(db.SmallInteger)
     limit_type = db.Column(db.String(2))
-    gw_id = db.Column(db.String, db.ForeignKey('gateways.gw_id'))
+    gw_id = db.Column(db.String, db.ForeignKey(
+        'gateways.gw_id', ondelete="RESTRICT"))
     value = db.Column(db.Float)
     status = db.Column(db.SmallInteger)
     modified_by_id = db.Column(db.Integer, db.ForeignKey(
@@ -234,7 +236,8 @@ class Uptimes(db.Model):
     __tablename__ = 'uptimes'
 
     id = db.Column(db.Integer, primary_key=True)
-    gw_id = db.Column(db.String, db.ForeignKey('gateways.gw_id'), unique=True)
+    gw_id = db.Column(db.String, db.ForeignKey(
+        'gateways.gw_id', ondelete="RESTRICT"), unique=True)
     start_time = db.Column(db.Time(timezone=False))
     end_time = db.Column(db.Time(timezone=False))
     status = db.Column(db.SmallInteger)
@@ -254,7 +257,8 @@ class Announcements(db.Model):
     name = db.Column(db.Unicode(64))
     path = db.Column(db.Unicode(128))
     status = db.Column(db.SmallInteger)
-    gw_id = db.Column(db.String, db.ForeignKey('gateways.gw_id'), unique=True)
+    gw_id = db.Column(db.String, db.ForeignKey(
+        'gateways.gw_id', ondelete="RESTRICT"), unique=True)
     modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id'))
     modified_on = db.Column(
         db.String, onupdate=datetime.datetime.now)
@@ -281,7 +285,8 @@ class Logos(db.Model):
     name = db.Column(db.Unicode(64))
     path = db.Column(db.Unicode(128))
     status = db.Column(db.SmallInteger)
-    gw_id = db.Column(db.String, db.ForeignKey('gateways.gw_id'), unique=True)
+    gw_id = db.Column(db.String, db.ForeignKey(
+        'gateways.gw_id', ondelete="RESTRICT"), unique=True)
     modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id'))
     modified_on = db.Column(
         db.String, onupdate=datetime.datetime.now)
