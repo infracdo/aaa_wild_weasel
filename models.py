@@ -196,13 +196,13 @@ class Gateways(db.Model):
     modified_on = db.Column(
         db.String, onupdate=datetime.datetime.now)
     limits = db.relationship(
-        "Data_Limits", backref="gateway_id", lazy="dynamic")
+        "Data_Limits", backref="gateway_id", lazy="dynamic", passive_deletes='all')
     uptimes = db.relationship(
-        "Uptimes", backref="gateway_id", lazy="dynamic")
+        "Uptimes", backref="gateway_id", lazy="dynamic", passive_deletes='all')
     announcements = db.relationship(
-        "Announcements", backref="gateway_id", lazy="dynamic")
+        "Announcements", backref="gateway_id", lazy="dynamic", passive_deletes='all')
     logos = db.relationship(
-        "Logos", backref="gateway_id", lazy="dynamic")
+        "Logos", backref="gateway_id", lazy="dynamic", passive_deletes='all')
 
     def get_gw_id(self):
         return self.gw_id
@@ -219,7 +219,7 @@ class Data_Limits(db.Model):
     access_type = db.Column(db.SmallInteger)
     limit_type = db.Column(db.String(2))
     gw_id = db.Column(db.String, db.ForeignKey(
-        'gateways.gw_id', ondelete="RESTRICT"))
+        'gateways.gw_id', ondelete='RESTRICT'), nullable=False)
     value = db.Column(db.Float)
     status = db.Column(db.SmallInteger)
     modified_by_id = db.Column(db.Integer, db.ForeignKey(
@@ -237,7 +237,7 @@ class Uptimes(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     gw_id = db.Column(db.String, db.ForeignKey(
-        'gateways.gw_id', ondelete="RESTRICT"), unique=True)
+        'gateways.gw_id', ondelete='RESTRICT'), unique=True, nullable=False)
     start_time = db.Column(db.Time(timezone=False))
     end_time = db.Column(db.Time(timezone=False))
     status = db.Column(db.SmallInteger)
@@ -258,7 +258,7 @@ class Announcements(db.Model):
     path = db.Column(db.Unicode(128))
     status = db.Column(db.SmallInteger)
     gw_id = db.Column(db.String, db.ForeignKey(
-        'gateways.gw_id', ondelete="RESTRICT"), unique=True)
+        'gateways.gw_id', ondelete='RESTRICT'), unique=True, nullable=False)
     modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id'))
     modified_on = db.Column(
         db.String, onupdate=datetime.datetime.now)
@@ -286,7 +286,7 @@ class Logos(db.Model):
     path = db.Column(db.Unicode(128))
     status = db.Column(db.SmallInteger)
     gw_id = db.Column(db.String, db.ForeignKey(
-        'gateways.gw_id', ondelete="RESTRICT"), unique=True)
+        'gateways.gw_id', ondelete='RESTRICT'), unique=True, nullable=False)
     modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id'))
     modified_on = db.Column(
         db.String, onupdate=datetime.datetime.now)
