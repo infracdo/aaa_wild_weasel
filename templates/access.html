@@ -2,6 +2,9 @@
 <html>
   <head>
     <title>PIPOL KONEK</title>
+    <script src="{{ url_for('static', filename='jquery-3.3.1.min.js') }}"></script>
+    <link href="{{ url_for('static', filename='bootstrap.min.css') }}" rel="stylesheet"/>
+    <script src="{{ url_for('static', filename='bootstrap.min.js') }}"></script>
     <link
       rel="stylesheet"
       href="{{url_for('static', filename='styles.css')}}"
@@ -33,14 +36,14 @@
 
       <br />
       <div class="access-buttons">
-        <form action="/login/" method="post">
+        <form action="/login/" method="post" id="freeAccessForm">
           <input type="hidden" name="uname" value="None" />
           <input type="hidden" name="pword" value="None" />
           <input type="hidden" name="package" value="Free" />
-          <button type="submit" class="access-button yellow">
-            INSTANT ACCESS ({{ limit1 }}MB)
-          </button>
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <a href="#"><button data-toggle="modal" data-target="#mymodal" type="submit" class="access-button yellow">
+            INSTANT ACCESS ({{ limit1 }}MB)
+          </button></a>
         </form>
         {% if lang == 'tl' %}
         <a href="{{ url_for('loginReg', lang=lang) }}">
@@ -52,7 +55,7 @@
             ACCESS ({{ limit2 }}MB)
           </button>
         </a>
-        <a href="{{ url_for('cert') }}"
+        <a href="#"
           ><button class="access-button brown">
             CERT ACCESS ({{ limit3 }}MB)
           </button></a
@@ -64,5 +67,20 @@
       </div>
       <br />
     </div>
+    <div class="modal" id="mymodal" role="dialog">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-body">
+            <div><h1 class="loading">LOGGING IN</h1></div>
+          </div>
+        </div>		
+      </div>
+    </div>
   </body>
+  <script>$('.access-button').click(function (){
+      $('#myModal').modal('show');
+     });
+     $('#mymodal').on('hidden.bs.modal', function() {
+      return false;
+    });</script>
 </html>

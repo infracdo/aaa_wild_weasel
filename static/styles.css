@@ -366,18 +366,55 @@ input {
   min-width: 30%;
   max-width: 10%;
 }
-div#content {
-  display: none;
+
+.modal {
+  text-align: center;
 }
-div#loading {
-  top: 200 px;
-  margin: auto;
-  position: absolute;
-  z-index: 1000;
-  width: 200px;
-  height: 200px;
-  background: url(loading.gif) no-repeat;
-  cursor: wait;
+
+.modal-dialog {
+  display: inline-block;
+  text-align: left;
+  vertical-align: middle;
+  overflow: hidden;
+}
+
+.modal, .modal-dialog, .modal-content {
+  background-color: transparent;
+  border: none;
+}
+
+.modal.fade .modal-dialog {
+  -webkit-transition: -webkit-transform 0s ease-out;/* if this is too slow, change it back to .0s */
+     -moz-transition:    -moz-transform 0s ease-out;
+      -ms-transition:     -ms-transform 0s ease-out;
+       -o-transition:      -o-transform 0s ease-out;
+          transition:         transform 0s ease-out;
+  -webkit-transform: translate(0, 0); 
+     -moz-transform: translate(0, 0);
+      -ms-transform: translate(0, 0);
+       -o-transform: translate(0, 0);
+          transform: translate(0, 0);
+  -webkit-transition-duration: 0s;
+     -moz-transition-duration: 0s;
+       -o-transition-duration: 0s;
+          transition-duration: 0s;/* note that the seconds are added */ 
+}
+
+.loading {
+  font-size: 3.4vh;
+  color:white; 
+  font-weight:600; 
+  letter-spacing:0.2em;
+  text-align: center;
+}
+
+@media screen and (min-width: 768px) { 
+  .modal:before {
+    display: inline-block;
+    vertical-align: middle;
+    content: " ";
+    height: 100%;
+  }
 }
 
 @media (max-width: 1080px) {

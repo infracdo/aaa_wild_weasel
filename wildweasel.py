@@ -25,6 +25,24 @@ app = Flask(__name__)
 csrf = CSRFProtect(app)
 app.secret_key = b'_5#y2L!.4Q8z\n\xec]/'
 
+# POSTGRES = {
+#     'user': 'wildweasel',
+#     'pw': 'ap0ll0',
+#     'db': 'wildweasel',
+#     'host': 'localhost',
+#     'port': '5432',
+# }
+
+# RADIUS = {
+#     'user': 'radius',
+#     'pw': 'ap0ll0',
+#     'db': 'radius',
+#     'host': 'localhost',
+#     'port': '5432',
+# }
+
+pyradServer = "192.168.88.146"
+
 POSTGRES = {
     'user': 'wildweasel',
     'pw': 'ap0ll0',
@@ -90,7 +108,7 @@ def login():
 
     # LOGIN: POST request | @post
     if request.method == 'POST':
-        srv = Client(server="192.168.88.146", secret=b"ap0ll0",
+        srv = Client(server=pyradServer, secret=b"ap0ll0",
                      dict=Dictionary("dictionary"))
         uname = request.form['uname']
         pword = request.form['pword']
@@ -412,7 +430,7 @@ def auth():
     incoming_n = request.args.get('incoming', default='', type=int)
     outgoing_n = request.args.get('outgoing', default='', type=int)
     trans = Transaction.query.filter_by(token=token_n).first()
-    srv = Client(server="192.168.88.146", secret=b"ap0ll0", dict=Dictionary("dictionary"))
+    srv = Client(server=pyradServer, secret=b"ap0ll0", dict=Dictionary("dictionary"))
     acct_req = srv.CreateAcctPacket(User_Name=trans.uname)
     acct_req["NAS-Identifier"] = trans.gw_id
     acct_req["Framed-IP-Address"] = trans.ip
@@ -450,6 +468,7 @@ def auth():
             trans.date_modified = str(datetime.datetime.now())
             db.session.commit()
             return "Auth: 0"
+        return "Auth: 1"
 
     # <------ AUTHENTICATION FOR REGISTERED ACCESS | @authReg ------>
 
@@ -648,7 +667,7 @@ def portal():
     trans = Transaction.query.filter_by(token=session['token']).first()
     # Splash page/message for authenticated users for email validation
     if trans and trans.stage == 'start_email_validation':
-        return render_template('logout.html',message='Check your email to verify. You are given five (5) minutes of internet connection to activate your email.', hideReturnToHome=True) 
+        return render_template('logout.html',message='Check your email inbox or spam folder to verify. You are given five (5) minutes of internet connection to activate your email.', hideReturnToHome=True) 
     # Calculate Usage and Limits for Free Access
     if session["type"] == "One-Click":
         display_type = "Level One"
@@ -751,10 +770,24 @@ def register():
         newUser = RegisterUser(username=regForm.email.data,value=regForm.password1.data,full_name=regForm.full_name.data,address=regForm.address.data,phone_no=regForm.phone_no.data,birthday=bday,gender=regForm.gender.data,id_type=regForm.govt_id_type.data,id_value=regForm.govt_id_value.data,status=0,token=token)
         db.session.add(newUser)
         if session.get('token'):
+            srv = Client(server=pyradServer, secret=b"ap0ll0",
+                     dict=Dictionary("dictionary"))
             trans = Transaction.query.filter_by(token=session['token']).first()
+            trans.uname = trans.mac
             trans.stage = 'pending_confirmation'
             trans.date_modified = str(datetime.datetime.now())
             db.session.commit()
+            acct_req = srv.CreateAcctPacket(User_Name=trans.mac)
+            acct_req["NAS-Identifier"] = trans.gw_id
+            acct_req["Framed-IP-Address"] = trans.ip
+            acct_req["Acct-Session-Id"] = trans.mac
+            acct_req["Acct-Status-Type"] = "Start"
+            try:
+                reply = srv.SendPacket(acct_req)
+            except pyrad.client.Timeout:
+                message = "RADIUS server does not reply"
+            except socket.error as error:
+                message = "Network error: " + error[1]
             return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
         else:
             return render_template('logout.html', message='There was an error in creating your registration. Please try again later.')
@@ -786,7 +819,7 @@ def cert():
     verify = request.environ.get('SSL_CLIENT_VERIFY')
     uname = request.environ.get('SSL_CLIENT_S_DN_CN')
     if verify == "SUCCESS" and session.get('token'):
-        srv = Client(server="192.168.88.146", secret=b"ap0ll0",
+        srv = Client(server=pyradServer, secret=b"ap0ll0",
                      dict=Dictionary("dictionary"))
         # get dynamic limits, @hardcoded defaults
         daily_limit = getLimit(session['gw_id'], 3, 'dd', 300000000)

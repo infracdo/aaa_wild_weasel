@@ -192,7 +192,7 @@ class Gateways(db.Model):
     gw_id = db.Column(db.String, unique=True)
     name = db.Column(db.String, unique=True)
     status = db.Column(db.SmallInteger)
-    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id'))
+    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), unique=True, nullable=False)
     modified_on = db.Column(
         db.String, onupdate=datetime.datetime.now)
     limits = db.relationship(
@@ -223,7 +223,7 @@ class Data_Limits(db.Model):
     value = db.Column(db.Float)
     status = db.Column(db.SmallInteger)
     modified_by_id = db.Column(db.Integer, db.ForeignKey(
-        'admin_users.id'))
+        'admin_users.id', ondelete='RESTRICT'), unique=True, nullable=False)
     modified_on = db.Column(
         db.String, onupdate=datetime.datetime.now)
 
@@ -241,7 +241,7 @@ class Uptimes(db.Model):
     start_time = db.Column(db.Time(timezone=False))
     end_time = db.Column(db.Time(timezone=False))
     status = db.Column(db.SmallInteger)
-    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id'))
+    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), unique=True, nullable=False)
     modified_on = db.Column(
         db.String, onupdate=datetime.datetime.now)
 
@@ -259,7 +259,7 @@ class Announcements(db.Model):
     status = db.Column(db.SmallInteger)
     gw_id = db.Column(db.String, db.ForeignKey(
         'gateways.gw_id', ondelete='RESTRICT'), unique=True, nullable=False)
-    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id'))
+    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), unique=True, nullable=False)
     modified_on = db.Column(
         db.String, onupdate=datetime.datetime.now)
 
@@ -287,7 +287,7 @@ class Logos(db.Model):
     status = db.Column(db.SmallInteger)
     gw_id = db.Column(db.String, db.ForeignKey(
         'gateways.gw_id', ondelete='RESTRICT'), unique=True, nullable=False)
-    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id'))
+    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), unique=True, nullable=False)
     modified_on = db.Column(
         db.String, onupdate=datetime.datetime.now)
 
