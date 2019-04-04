@@ -1,0 +1,56 @@
+{% extends 'admin/model/list.html' %}
+{% import 'admin/model/layout.html' as model_layout with context %}
+
+{% block model_menu_bar %}
+<br />
+  <h2 style="display:inline">{{ admin_view.name }}</h2>
+  {% if admin_view.can_create %}
+    {%- if admin_view.create_modal -%}
+      {{ lib.add_modal_button(url=get_url('.create_view', url=return_url, modal=True), title=_gettext('Add New Record'), content=_gettext('Add')) }}
+    {% else %}
+      <a href="{{ get_url('.create_view', url=return_url) }}" title="{{ _gettext('Add New Record') }}"><button class="btn" style="margin-left: 20px; margin-top:-6px;">{{ _gettext('Add New') }}</button></a>
+    {%- endif -%}       
+      {% endif %}
+        
+  <div class="clearfix"></div>
+  <hr>
+    <ul class="nav nav-tabs actions-nav">
+        <li class="active">
+            <a href="javascript:void(0)">{{ _gettext('All') }}{% if count %} ({{ count }}){% endif %}</a>
+        </li>
+
+        {% if admin_view.can_export %}
+            {{ model_layout.export_options() }}
+        {% endif %}
+
+        {% block model_menu_bar_before_filters %}{% endblock %}
+
+        {% if filters %}
+        <li class="dropdown">
+            {{ model_layout.filter_options() }}
+        </li>
+        {% endif %}
+
+        {% if can_set_page_size %}
+        <li class="dropdown">
+            {{ model_layout.page_size_form(page_size_url) }}
+        </li>
+        {% endif %}
+
+        {% if actions %}
+        <li class="dropdown">
+            {{ actionlib.dropdown(actions) }}
+        </li>
+        {% endif %}
+
+        {% if search_supported %}
+        <li>
+            {{ model_layout.search_form() }}
+        </li>
+        {% endif %}
+        {% block model_menu_bar_after_filters %}{% endblock %}
+
+    </ul>
+{% endblock %}
+
+

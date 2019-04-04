@@ -894,10 +894,14 @@ def logout():
 
 # /------ ADMIN INTERFACE STARTS HERE ------/ #
 
+@app.errorhandler(403)
+def page_forbidden(e):
+    return redirect(url_for('admin.login_view'))
+
 # Define login and registration forms (for flask-login)
 class LoginForm(form.Form):
-    username = fields.StringField(validators=[validators.InputRequired()])
-    password = fields.PasswordField(validators=[validators.InputRequired()])
+    username = fields.StringField(validators=[validators.InputRequired()],render_kw={"class": "form-control login-input"})
+    password = fields.PasswordField(validators=[validators.InputRequired()],render_kw={"class": "form-control login-input"})
 
 
     def validate_username(self, field):
@@ -950,7 +954,12 @@ def _status_formatter(view, context, model, name):
         return "Active" if model.status == 1 else "Inactive"
     return ""
 
-class UserView(ModelView):
+class BaseView(ModelView):
+    create_template = 'admin/create.html'
+    edit_template = 'admin/edit.html'
+    list_template = 'admin/list.html'
+
+class UserView(BaseView):
     column_list = ('first_name', 'last_name', 'username')
     form_columns = ('username', 'first_name', 'last_name', 'password')
 
@@ -981,8 +990,7 @@ class UserView(ModelView):
     def is_accessible(self):
         return current_user.is_authenticated
 
-
-class GatewayView(ModelView):
+class GatewayView(BaseView):
     # column_exclude_list = ['modified_on', ]
     column_list = ('gw_id', 'name', 'modified_by', 'modified_on')
     column_labels = {
@@ -1026,7 +1034,7 @@ class GatewayView(ModelView):
         return current_user.is_authenticated
 
 
-class DataLimitsView(ModelView):
+class DataLimitsView(BaseView):
     column_list = ('gateway_id', 'access_type', 'limit_type', 'value', 'status', 'modified_by', 'modified_on')
     column_labels = {
         'gateway_id': 'Region or Municipality',
@@ -1129,7 +1137,8 @@ class DataLimitsView(ModelView):
     def is_accessible(self):
         return current_user.is_authenticated
 
-class UptimesView(ModelView):
+class UptimesView(BaseView):
+    
     column_list = ('gateway_id', 'start_time', 'end_time', 'status', 'modified_by', 'modified_on')
     column_labels = {
         'gateway_id': 'Region or Municipality',
@@ -1222,7 +1231,7 @@ def _list_thumbnail(view, context, model, name):
     )
 
 
-class AnnouncementsView(ModelView):
+class AnnouncementsView(BaseView):
 
     column_list = [
         'gateway_id', 'image', 'status', 'modified_by', 'modified_on'
@@ -1294,7 +1303,7 @@ def del_image(mapper, connection, target):
         except OSError:
             pass
 
-class LogosView(ModelView):
+class LogosView(BaseView):
 
     column_list = [
         'image', 'gateway_id', 'status', 'modified_by', 'modified_on'
@@ -1376,7 +1385,7 @@ class AdminIndexView(admin.AdminIndexView):
         link = '<p></p>'
         self._template_args['form'] = form
         self._template_args['link'] = link
-        return super(AdminIndexView, self).index()
+        return self.render('admin_login.html', form=form)
 
     @expose('/register/', methods=('GET', 'POST'))
     def register_view(self):
@@ -1409,7 +1418,8 @@ class AdminIndexView(admin.AdminIndexView):
 init_login()
 
 # Create admin
-admin = admin.Admin(app, 'Wild Weasel Admin', index_view=AdminIndexView(), base_template='my_master.html')
+admin = admin.Admin(app, 'Wild Weasel Admin', index_view=AdminIndexView(), base_template='my_master.html', template_mode='bootstrap3')
+app.config['FLASK_ADMIN_FLUID_LAYOUT'] = True
 #app.config['FLASK_ADMIN_SWATCH'] = 'flatly'
 
 # Add view

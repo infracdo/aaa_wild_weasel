@@ -1,0 +1,19 @@
+{% extends 'admin/model/create.html' %}
+
+{% macro extraSave() %}
+  {% if admin_view.can_create %}
+  <input name="_add_another" type="submit" class="btn btn-default" value="{{ _gettext('Save and Add New') }}" />
+  {% endif %}
+{% endmacro %}
+
+{% block body %}
+    <h2 id="brand">Add New {{ admin_view.name[:-1] }}</h2>
+    <div class="clearfix"></div>
+    <hr>
+  {% call lib.form_tag(form) %}
+      {{ lib.render_form_fields(form, form_opts=form_opts) }}
+      <div class="form-buttons">
+        {{ lib.render_form_buttons(return_url, extraSave()) }}
+      </div>
+  {% endcall %}
+{% endblock %}

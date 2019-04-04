@@ -10,6 +10,7 @@
     <p>
       Here you can customize the Wild Weasel settings.
     </p>
+    <br />
     {% else %}
     <form method="POST" action="">
       {{ form.hidden_tag() if form.hidden_tag }}
@@ -35,5 +36,6 @@
   <a class="btn btn-primary" href="/login"
     ><i class="icon-arrow-left icon-white"></i> Back to Portal</a
   >
+  <br /><br />
 </div>
 {% endblock body %}
