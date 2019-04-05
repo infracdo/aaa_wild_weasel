@@ -1,5 +1,5 @@
 from flask import Flask, flash, redirect, url_for, request, make_response, render_template, session
-from wtforms import form, fields, validators, SelectField, HiddenField, TimeField, RadioField, PasswordField, StringField, TextAreaField
+from wtforms import form, fields, validators, SelectField, HiddenField, RadioField, PasswordField, StringField, TextAreaField
 import flask_admin as admin
 from flask_login import LoginManager, current_user, login_user, logout_user
 from flask_admin.contrib.sqla import ModelView
@@ -895,6 +895,7 @@ def logout():
 # /------ ADMIN INTERFACE STARTS HERE ------/ #
 
 @app.errorhandler(403)
+@app.errorhandler(400)
 def page_forbidden(e):
     return redirect(url_for('admin.login_view'))
 
@@ -1053,6 +1054,12 @@ class DataLimitsView(BaseView):
         modified_on=HiddenField,
     )
 
+    # def uniqueLimit(form, field):
+    #     existing_limit = Data_Limits.query.filter_by(gw_id=form.gateway_id.data.gw_id, access_type=form.access_type.data, limit_type=form.limit_type.data).first()
+    #     if existing_limit:
+    #         if existing_limit.id != id:
+    #             raise validators.ValidationError('This data limit for this gateway ID already exists.')
+
     form_args = {
         'modified_on': {
             'default': str(datetime.datetime.now())
@@ -1138,7 +1145,10 @@ class DataLimitsView(BaseView):
         return current_user.is_authenticated
 
 class UptimesView(BaseView):
-    
+    hours = [('00:00:00','12:00 AM'),('01:00:00','01:00 AM'),('02:00:00','02:00 AM'),('03:00:00','03:00 AM'),('04:00:00','04:00 AM'),('05:00:00','05:00 AM'),
+            ('06:00:00','06:00 AM'),('07:00:00', '07:00 AM'),('08:00:00','08:00 AM'),('09:00:00','09:00 AM'),('10:00:00','10:00 AM'),('11:00:00','11:00 AM'),
+            ('12:00:00','12:00 PM'),('13:00:00','01:00 PM'),('14:00:00','02:00 PM'),('15:00:00','03:00 PM'),('16:00:00','04:00 PM'),('17:00:00','05:00 PM'),
+            ('18:00:00','06:00 PM'),('19:00:00', '07:00 PM'),('20:00:00','08:00 PM'),('21:00:00','09:00 PM'),('22:00:00','10:00 PM'),('23:00:00','11:00 PM')]
     column_list = ('gateway_id', 'start_time', 'end_time', 'status', 'modified_by', 'modified_on')
     column_labels = {
         'gateway_id': 'Region or Municipality',
@@ -1160,34 +1170,36 @@ class UptimesView(BaseView):
         },
         'start_time': {
             'validators' : [validators.InputRequired()],
-            'format': '%I:%M %p',
-            'description': "must be 12 hr format, ex. '07:00 AM'"
+            'choices': hours
+            # 'format': '%I:%M %p',
+            # 'description': "must be 12 hr format, ex. '07:00 AM'"
         },
         'end_time': {
             'validators' : [validators.InputRequired()],
-            'format': '%I:%M %p',
-            'description': "must be 12 hr format, ex. '01:00 PM'"
+            'choices': hours
+            # 'format': '%I:%M %p',
+            # 'description': "must be 12 hr format, ex. '01:00 PM'"
             }
     }
     form_overrides = dict(
-        start_time=TimeField,
-        end_time=TimeField,
+        start_time=SelectField,
+        end_time=SelectField,
         modified_on=HiddenField
     )
     form_widget_args = {
         'modified_on': {
             'readOnly': True
-        },
-        'start_time': {
-            'placeholder': 'HH:MM PP',
-            'data-date-format': u'HH:ii P',
-            'data-show-meridian': 'True'
-        },
-        'end_time': {
-            'placeholder': 'HH:MM PP',
-            'data-date-format': u'HH:ii P',
-            'data-show-meridian': 'True'
         }
+        # 'start_time': {
+        #     'placeholder': 'HH:MM PP',
+        #     'data-date-format': u'HH:ii P',
+        #     'data-show-meridian': 'True'
+        # },
+        # 'end_time': {
+        #     'placeholder': 'HH:MM PP',
+        #     'data-date-format': u'HH:ii P',
+        #     'data-show-meridian': 'True'
+        # }
     }
 
     def _start_time_formatter(view, context, model, name):
