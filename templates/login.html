@@ -39,7 +39,7 @@
           <input type="hidden" name="package" value="Registered" />
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
           <p>
-            <a href="#"
+            <a href="{{ url_for('sendPasswordResetLink') }}"
               >{% if lang == 'tl' %}Nakalimutan ang iyong {% else %}Forgot your
               {% endif %}password?</a
             >
@@ -52,6 +52,7 @@
           <button data-toggle="modal" data-target="#mymodal" type="submit" class="enter-button form-button">
             {% if lang == 'tl' %}Magsign In{% else %}Sign In{% endif %}
           </button>
+          <br /><br />
           <p>
             <a href="{{ url_for('register', lang=lang) }}"
               >{% if lang == 'tl' %}Di pa nakapagrehistro? Mag-click dito para

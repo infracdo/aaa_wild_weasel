@@ -841,3 +841,20 @@ input#path {
 .table-bordered > tbody > tr > td {
   vertical-align: middle;
 }
+
+.table > thead > tr > th {
+  vertical-align: middle;
+}
+
+@media (min-width: 768px) {
+  .modal-dialog {
+      width: 50vw;
+      margin: 30px auto;
+  }
+}
+
+@media (min-width: 1300px) {
+  .container {
+      width: 85%;
+  }
+}

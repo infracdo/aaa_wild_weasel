@@ -55,8 +55,8 @@
             ACCESS ({{ limit2 }}MB)
           </button>
         </a>
-        <a href="#"
-          ><button class="access-button brown">
+        <a href="{{ url_for('cert') }}"
+          ><button data-toggle="modal" data-target="#mymodal" class="access-button brown">
             CERT ACCESS ({{ limit3 }}MB)
           </button></a
         >

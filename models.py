@@ -130,6 +130,15 @@ class CertifiedDevices(BaseModel, db.Model):
         self.last_record = kwargs.get('last_record')
         self.last_active = kwargs.get('last_active')
 
+class UserRoles(db.Model):
+    """Model for the admin user roles table"""
+    __tablename__ = 'roles'
+
+    id = db.Column(db.Integer, primary_key=True)
+    role = db.Column(db.String, unique=True)
+
+    def __repr__(self):
+        return self.role.title()
 
 class Admin_Users(db.Model):
     """Model for the admin users table"""
@@ -140,16 +149,20 @@ class Admin_Users(db.Model):
     password = db.Column(db.String)
     first_name = db.Column(db.String)
     last_name = db.Column(db.String)
-    gateways = db.relationship(
-        "Gateways", backref="modified_by", lazy="dynamic")
-    limits = db.relationship(
-        "Data_Limits", backref="modified_by", lazy="dynamic")
-    uptimes = db.relationship(
-        "Uptimes", backref="modified_by", lazy="dynamic")
-    announcements = db.relationship(
-        "Announcements", backref="modified_by", lazy="dynamic")
-    logos = db.relationship(
-        "Logos", backref="modified_by", lazy="dynamic")
+    role_id = db.Column(db.Integer, db.ForeignKey('roles.id', ondelete='RESTRICT'), nullable=False)
+    role = db.relationship("UserRoles", foreign_keys=[role_id])
+    mpop_id = db.Column(db.String, db.ForeignKey('gateways.gw_id', ondelete='RESTRICT'))
+    mpop = db.relationship("Gateways", foreign_keys=[mpop_id])
+    # gateways = db.relationship(
+    #     "Gateways", backref="modified_by", lazy="dynamic", foreign_keys=[])
+    # limits = db.relationship(
+    #     "Data_Limits", backref="modified_by", lazy="dynamic")
+    # uptimes = db.relationship(
+    #     "Uptimes", backref="modified_by", lazy="dynamic")
+    # announcements = db.relationship(
+    #     "Announcements", backref="modified_by", lazy="dynamic")
+    # logos = db.relationship(
+    #     "Logos", backref="modified_by", lazy="dynamic")
 
     def __init__(self, **kwargs):
         self.id = kwargs.get('id')
@@ -176,25 +189,34 @@ class Admin_Users(db.Model):
     def get_id(self):
         return self.id
 
+    def get_mpop_id(self):
+        return self.mpop_id
+
+    def get_role(self):
+        return self.role_id
+
     # Required for administrative interface
     def __unicode__(self):
         return self.username
 
     def __repr__(self):
-        return (self.first_name + " " + self.last_name).title()
-
+        return self.username
 
 class Gateways(db.Model):
-    """Model for the admin users table"""
+    """Model for the mpop ids table"""
     __tablename__ = 'gateways'
 
     id = db.Column(db.Integer, primary_key=True)
     gw_id = db.Column(db.String, unique=True)
     name = db.Column(db.String, unique=True)
     status = db.Column(db.SmallInteger)
-    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), unique=True, nullable=False)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
+    created_by = db.relationship("Admin_Users", foreign_keys=[created_by_id])
+    created_on = db.Column(db.String)
+    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
+    modified_by = db.relationship("Admin_Users", foreign_keys=[modified_by_id])
     modified_on = db.Column(
-        db.String, onupdate=datetime.datetime.now)
+        db.String, default=datetime.datetime.now, onupdate=datetime.datetime.now)
     limits = db.relationship(
         "Data_Limits", backref="gateway_id", lazy="dynamic", passive_deletes='all')
     uptimes = db.relationship(
@@ -208,7 +230,7 @@ class Gateways(db.Model):
         return self.gw_id
 
     def __repr__(self):
-        return self.name
+        return self.gw_id
 
 
 class Data_Limits(db.Model):
@@ -221,14 +243,17 @@ class Data_Limits(db.Model):
     gw_id = db.Column(db.String, db.ForeignKey(
         'gateways.gw_id', ondelete='RESTRICT'), nullable=False)
     value = db.Column(db.Float)
-    status = db.Column(db.SmallInteger)
-    modified_by_id = db.Column(db.Integer, db.ForeignKey(
-        'admin_users.id', ondelete='RESTRICT'), unique=True, nullable=False)
+    status = db.Column(db.SmallInteger, default=0)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
+    created_by = db.relationship("Admin_Users", foreign_keys=[created_by_id])
+    created_on = db.Column(db.String)
+    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
+    modified_by = db.relationship("Admin_Users", foreign_keys=[modified_by_id])
     modified_on = db.Column(
-        db.String, onupdate=datetime.datetime.now)
+        db.String, default=datetime.datetime.now, onupdate=datetime.datetime.now)
 
-    # __table_args__ = (db.UniqueConstraint(
-    #     'gw_id', 'access_type', 'limit_type'), )
+    __table_args__ = (db.UniqueConstraint(
+        'gw_id', 'access_type', 'limit_type'), )
 
 
 class Uptimes(db.Model):
@@ -240,10 +265,14 @@ class Uptimes(db.Model):
         'gateways.gw_id', ondelete='RESTRICT'), unique=True, nullable=False)
     start_time = db.Column(db.Time(timezone=False))
     end_time = db.Column(db.Time(timezone=False))
-    status = db.Column(db.SmallInteger)
-    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), unique=True, nullable=False)
+    status = db.Column(db.SmallInteger, default=0)
+    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
+    modified_by = db.relationship("Admin_Users", foreign_keys=[modified_by_id])
     modified_on = db.Column(
-        db.String, onupdate=datetime.datetime.now)
+        db.String, default=datetime.datetime.now, onupdate=datetime.datetime.now)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
+    created_by = db.relationship("Admin_Users", foreign_keys=[created_by_id])
+    created_on = db.Column(db.String)
 
 
 images = UploadSet('images', IMAGES)
@@ -256,12 +285,15 @@ class Announcements(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.Unicode(64))
     path = db.Column(db.Unicode(128))
-    status = db.Column(db.SmallInteger)
+    status = db.Column(db.SmallInteger, default=0)
     gw_id = db.Column(db.String, db.ForeignKey(
         'gateways.gw_id', ondelete='RESTRICT'), unique=True, nullable=False)
-    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), unique=True, nullable=False)
+    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
     modified_on = db.Column(
-        db.String, onupdate=datetime.datetime.now)
+        db.String, default=datetime.datetime.now, onupdate=datetime.datetime.now)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
+    created_by = db.relationship("Admin_Users", foreign_keys=[created_by_id])
+    created_on = db.Column(db.String)
 
     def __unicode__(self):
         return self.name
@@ -284,12 +316,15 @@ class Logos(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.Unicode(64))
     path = db.Column(db.Unicode(128))
-    status = db.Column(db.SmallInteger)
+    status = db.Column(db.SmallInteger, default=0)
     gw_id = db.Column(db.String, db.ForeignKey(
         'gateways.gw_id', ondelete='RESTRICT'), unique=True, nullable=False)
-    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), unique=True, nullable=False)
+    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
     modified_on = db.Column(
-        db.String, onupdate=datetime.datetime.now)
+        db.String, default=datetime.datetime.now, onupdate=datetime.datetime.now)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
+    created_by = db.relationship("Admin_Users", foreign_keys=[created_by_id])
+    created_on = db.Column(db.String)
 
     def __unicode__(self):
         return self.name
@@ -324,3 +359,5 @@ class RegisterUser(db.Model):
     id_value = db.Column(db.String)
     status = db.Column(db.SmallInteger)
     token = db.Column(db.String)
+    registration_date = db.Column(db.String)
+    validated = db.Column(db.SmallInteger)

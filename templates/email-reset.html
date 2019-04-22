@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>PIPOL KONEK</title>
+    <link
+    rel="stylesheet"
+    href="{{url_for('static', filename='styles.css')}}"
+    />
+    <!-- <link
+      rel="stylesheet"
+      href="{{url_for('static', filename='tables.min.css')}}"
+    /> -->
+  </head>
+  <body>
+    <div class="home-header"></div>
+    <div class="content-container">
+      <div class="top-bar"></div>
+      <section class="logo-row">
+        <div class="login-logo"><h1>PIPOL KONEK</h1></div>
+        <img src="{{ url_for('static', filename='dict.png') }}" class="login-logo" />
+      </section>
+
+      <h2>Reset Password</h2>
+      <br />
+      <form class="form" action="/email-reset/" method="post">
+        <fieldset>
+          <label for="email">Registered Email Address</label>
+          <input type="email" name="email" />
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <p>Your password reset link will be sent to the registered email address associated with your account.</p>
+          <button type="submit" class="enter-button form-button">
+            Send
+          </button>
+          {% if message %}
+          <p>
+            <b>{{ message }}</b>
+          </p>
+          {% endif %}
+        </fieldset>
+      </form>
+      <br /><br /><br />
+      <div class="copyright-footer">
+        <p>Apollo Technologies, Inc. &copy; 2019</p>
+      </div>
+    </div>
+    <br /><br />
+  </body>
+</html>

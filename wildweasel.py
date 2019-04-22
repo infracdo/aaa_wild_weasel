@@ -7,12 +7,12 @@ from flask_admin import helpers, expose
 from flask_admin import form as admin_form
 from flask_wtf import FlaskForm
 from flask_wtf.csrf import CSRFProtect
-from sqlalchemy import event
+from sqlalchemy import event, func
 from werkzeug.security import generate_password_hash, check_password_hash
 from pyrad.dictionary import Dictionary
 from pyrad.client import Client
 from pyrad.packet import Packet
-from models import db, Transaction, Devices, Registered_Users, CertifiedDevices, Admin_Users, Gateways, Data_Limits, Uptimes, Announcements, Logos, RegisterUser
+from models import db, Transaction, Devices, Registered_Users, CertifiedDevices, Admin_Users, Gateways, Data_Limits, Uptimes, Announcements, Logos, RegisterUser, UserRoles
 from googletrans import Translator
 import pyrad.packet
 import datetime, socket, uuid, os, re
@@ -20,6 +20,7 @@ from flask_uploads import UploadSet, IMAGES, configure_uploads, patch_request_cl
 from jinja2 import Markup
 from tzlocal import get_localzone
 from send_mail import send_mail
+from math import ceil
 
 app = Flask(__name__)
 csrf = CSRFProtect(app)
@@ -130,14 +131,14 @@ def login():
                     device.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
                 if device.free_data >= daily_limit:
                     if last_active_date == datetime.date.today():
-                        return render_template('logout.html', message="You have exceeded your data usage limit for today.")
+                        return render_template('logout.html', message="You have exceeded your data usage limit for today.", returnLink=url_for('access'))
                     else:
                         device.free_data = 0
                         db.session.commit()
                 else:
                     if device.month_data >= month_limit:
                         if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
-                            return render_template('logout.html', message="You have exceeded your data usage limit for this month.")
+                            return render_template('logout.html', message="You have exceeded your data usage limit for this month.", returnLink=url_for('access'))
                         else:
                             device.month_data = 0
                             db.session.commit()
@@ -182,7 +183,11 @@ def login():
                         resp = make_response(render_template('login.html', message=message))
                         resp.set_cookie('token', token)
                         return resp
-
+                    if int(reguser.validated) == 0:
+                        registered = datetime.datetime.strptime(reguser.registration_date, '%Y-%m-%d %H:%M:%S.%f')
+                        elapsed_time = datetime.datetime.now() - registered
+                        if elapsed_time > datetime.timedelta(days=30):
+                            return render_template('logout.html', message="Your account has not been validated and your registration has expired. Please contact DICT.", returnLink=url_for('access'))
                 # check login credentials
                 # @tofollow: password encryption
                 session['uname'] = uname
@@ -205,14 +210,14 @@ def login():
                         last_active_date = datetime.datetime.strptime(user.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
                         if user.registered_data >= daily_limit:
                             if last_active_date == datetime.date.today():
-                                return render_template('logout.html', message="You have exceeded your data usage limit for today.")
+                                return render_template('logout.html', message="You have exceeded your data usage limit for today.",returnLink=url_for('access'))
                             else:
                                 user.registered_data = 0
                                 db.session.commit()
                         else:
                             if user.month_data >= month_limit:
                                 if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
-                                    return render_template('logout.html', message="You have exceeded your data usage limit for this month.")
+                                    return render_template('logout.html', message="You have exceeded your data usage limit for this month.", returnLink=url_for('access'))
                                 else:
                                     user.month_data = 0
                                     db.session.commit()
@@ -443,7 +448,7 @@ def auth():
         db.session.commit()
         return "Auth: 0"
 
-    if trans.stage == "logout" or trans.stage == "end_email_validation":
+    if trans.stage == "logout" or trans.stage == "end_email_validation" or trans.stage == "end_reset_password":
         return "Auth: 0"
 
     # <------ AUTHENTICATION FOR EMAIL VALIDATION | @authEmail ------>
@@ -465,6 +470,30 @@ def auth():
         else:
             # end if exceeded
             trans.stage = "end_email_validation"
+            trans.date_modified = str(datetime.datetime.now())
+            db.session.commit()
+            return "Auth: 0"
+        return "Auth: 1"
+
+        # <------ AUTHENTICATION FOR PASSWORD RESET | @authPass ------>
+
+    if trans.stage == "reset_password":
+        # limit to 20 MB
+        if incoming_n + outgoing_n > 20000000:
+            trans.stage = "end_reset_password"
+            trans.date_modified = str(datetime.datetime.now())
+            db.session.commit()
+            return "Auth: 0"
+        # limit to 10 minutes
+        last_modified = datetime.datetime.strptime(trans.date_modified, '%Y-%m-%d %H:%M:%S.%f')
+        elapsed_time = datetime.datetime.now() - last_modified
+        if elapsed_time <= datetime.timedelta(minutes=5):
+            trans.stage = "reset_password"
+            db.session.commit()
+            return "Auth: 1"
+        else:
+            # end if exceeded
+            trans.stage = "end_reset_password"
             trans.date_modified = str(datetime.datetime.now())
             db.session.commit()
             return "Auth: 0"
@@ -668,6 +697,8 @@ def portal():
     # Splash page/message for authenticated users for email validation
     if trans and trans.stage == 'start_email_validation':
         return render_template('logout.html',message='Check your email inbox or spam folder to verify. You are given five (5) minutes of internet connection to activate your email.', hideReturnToHome=True) 
+    if trans and trans.stage == 'reset_password':
+        return render_template("logout.html", message="Check your email inbox or spam folder for the password reset link. You are given five (5) minutes of internet connection to reset your password.", hideReturnToHome=True)
     # Calculate Usage and Limits for Free Access
     if session["type"] == "One-Click":
         display_type = "Level One"
@@ -767,7 +798,7 @@ def register():
         message = "Click on the following link to activate your membership: " + str(request.url_root) + "activate/" + str(token)
         # try:
         send_mail(subject="PIPOL KONEK Membership Activation", recipient=regForm.email.data, message=message)
-        newUser = RegisterUser(username=regForm.email.data,value=regForm.password1.data,full_name=regForm.full_name.data,address=regForm.address.data,phone_no=regForm.phone_no.data,birthday=bday,gender=regForm.gender.data,id_type=regForm.govt_id_type.data,id_value=regForm.govt_id_value.data,status=0,token=token)
+        newUser = RegisterUser(username=regForm.email.data,value=regForm.password1.data,full_name=regForm.full_name.data,address=regForm.address.data,phone_no=regForm.phone_no.data,birthday=bday,gender=regForm.gender.data,id_type=regForm.govt_id_type.data,id_value=regForm.govt_id_value.data,status=0,token=token,registration_date=str(datetime.datetime.now()),validated=0)
         db.session.add(newUser)
         if session.get('token'):
             srv = Client(server=pyradServer, secret=b"ap0ll0",
@@ -790,7 +821,7 @@ def register():
                 message = "Network error: " + error[1]
             return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
         else:
-            return render_template('logout.html', message='There was an error in creating your registration. Please try again later.')
+            return render_template('logout.html', message='There was an error in creating your registration. Please try again later.', returnLink=url_for('access'))
     if regForm.errors.items():
         flash("Your form has some invalid input(s). Please fix them, and re-enter passwords, before submitting.")
     return render_template('register.html', form=regForm, logo_path=getLogo(session['gw_id']))
@@ -807,17 +838,79 @@ def activateUser(token):
         else:
             user.status = 1
             db.session.commit()
-            return render_template("logout.html", message="Your have successfully activated your account. You can now use the portal as a registered member.")
+            return render_template("logout.html", message="Your have successfully activated your account. You can now use the portal as a registered member.", returnLink=url_for('access'))
     else:
         return render_template("logout.html", message="You have submitted an invalid activation link.", hideReturnToHome=True)
+
+# <------ REGISTERED MEMBER SEND PASSWORD RESET LINK | @emailReset ------>
+@app.route('/email-reset/', methods=['GET', 'POST'])
+def sendPasswordResetLink():
+    if request.method == 'GET':
+        return render_template("email-reset.html")
+    else:
+        if request.form['email'] == None or request.form['email'] == '' or request.form['email'] == ' ':
+            return render_template("email-reset.html", message="Please enter a valid email address.")
+        else:
+            reguser = RegisterUser.query.filter_by(username=request.form['email']).first()
+            if reguser:
+                message = "Click on the following link to reset your password: " + str(request.url_root) + "reset/" + str(reguser.token)
+                # try:
+                send_mail(subject="PIPOL KONEK Password Reset", recipient=reguser.username, message=message)
+                srv = Client(server=pyradServer, secret=b"ap0ll0",
+                     dict=Dictionary("dictionary"))
+                trans = Transaction.query.filter_by(token=session['token']).first()
+                trans.uname = trans.mac
+                trans.stage = 'reset_password'
+                trans.date_modified = str(datetime.datetime.now())
+                db.session.commit()
+                acct_req = srv.CreateAcctPacket(User_Name=trans.mac)
+                acct_req["NAS-Identifier"] = trans.gw_id
+                acct_req["Framed-IP-Address"] = trans.ip
+                acct_req["Acct-Session-Id"] = trans.mac
+                acct_req["Acct-Status-Type"] = "Start"
+                try:
+                    reply = srv.SendPacket(acct_req)
+                except pyrad.client.Timeout:
+                    message = "RADIUS server does not reply"
+                except socket.error as error:
+                    message = "Network error: " + error[1]
+                return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
+            else:
+                return render_template("email-reset.html", message=("Please enter an email address that is registered with Pipol Konek. " + Markup('<a href="%s">Register here.</a>' % url_for('register'))))
+
+# <------ REGISTERED MEMBER RESET PASSWORD FORM | @reset ------>
+@app.route('/reset/<token>', methods=['GET', 'POST'])
+def resetUser(token):
+    if request.method == 'GET':
+        return render_template("reset.html", token=token)
+    else:
+        password1 = request.form['password1']
+        password2 = request.form['password2']
+        if not password1 == password2:
+            return render_template("reset.html", token=token, message="The passwords you entered do not match.")
+        else:
+            if password1 == None or password1 == '' or password2 == None or password2 == '':
+                return render_template("reset.html", token=token, message="Please fill in all fields.")
+            if len(password1) <= 6 or len(password2) <= 6:
+                return render_template("reset.html", token=token, message="Password must be at least 6 characters.")
+        reguser = RegisterUser.query.filter_by(token=token).first()
+        if reguser:
+            reguser.password = generate_password_hash(password1)
+            db.session.commit()
+            return render_template("logout.html", message="Your password has been reset.", returnLink=url_for('access'))
+        else:
+            return render_template("logout.html", message="There was an error resetting your password.", returnLink=url_for('access'))
 
 
 # <------ CERTIFIED ACCESS AUTHENTICATION | @certVerify @loginCert ------>
 
 @app.route("/cert/")
 def cert():
-    verify = request.environ.get('SSL_CLIENT_VERIFY')
-    uname = request.environ.get('SSL_CLIENT_S_DN_CN')
+    try:
+        verify = request.environ.get('SSL_CLIENT_VERIFY')
+        uname = request.environ.get('SSL_CLIENT_S_DN_CN')
+    except:
+        return render_template('logout.html', message="Your browser/device certificate does not exist or is invalid. Please contact DICT to apply for a valid certificate.", returnLink=url_for('access'))
     if verify == "SUCCESS" and session.get('token'):
         srv = Client(server=pyradServer, secret=b"ap0ll0",
                      dict=Dictionary("dictionary"))
@@ -835,14 +928,14 @@ def cert():
                 device.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
             if device.cert_data >= daily_limit:
                 if last_active_date == datetime.date.today():
-                    return render_template('logout.html', message="You have exceeded your data usage limit for today.")
+                    return render_template('logout.html', message="You have exceeded your data usage limit for today.", returnLink=url_for('access'))
                 else:
                     device.cert_data = 0
                     db.session.commit()
             else:
                 if device.month_data >= month_limit:
                     if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
-                        return render_template('logout.html', message="You have exceeded your data usage limit for this month.")
+                        return render_template('logout.html', message="You have exceeded your data usage limit for this month.", returnLink=url_for('access'))
                     else:
                         device.month_data = 0
                         db.session.commit()
@@ -871,7 +964,7 @@ def cert():
             message = "Network error: " + error[1]
         return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
     else:
-        return render_template('logout.html', message="Your browser/device certificate does not exist or is invalid. Please contact DICT to apply for a valid certificate.")
+        return render_template('logout.html', message="Your browser/device certificate does not exist or is invalid. Please contact DICT to apply for a valid certificate.", returnLink=url_for('access'))
 
 
 # <------ LOGOUT | @logout ------>
@@ -885,14 +978,11 @@ def logout():
             trans.stage = "logout"
             trans.date_modified = str(datetime.datetime.now())
             db.session.commit()
-            print("i entered here")
+            #print("i entered here")
     return render_template('logout.html', message="You have logged out. Your Pipol Konek connection will automatically terminate after one (1) minute.")
 
 
-
-
-
-# /------ ADMIN INTERFACE STARTS HERE ------/ #
+# /------ ADMIN INTERFACE STARTS HERE | @admin ------/ #
 
 @app.errorhandler(403)
 @app.errorhandler(400)
@@ -945,14 +1035,31 @@ def init_login():
 
 # Create customized model view class
 
-def _date_formatter(view, context, model, name):
+def _mod_date_formatter(view, context, model, name):
     if model.modified_on:
         return datetime.datetime.strptime(model.modified_on, '%Y-%m-%d %H:%M:%S.%f').strftime('%Y-%m-%d %I:%M:%S %p')
+    return ""
+
+def _cre_date_formatter(view, context, model, name):
+    if model.created_on:
+        return datetime.datetime.strptime(model.created_on, '%Y-%m-%d %H:%M:%S.%f').strftime('%Y-%m-%d %I:%M:%S %p')
     return ""
 
 def _status_formatter(view, context, model, name):
     if model.status:
         return "Active" if model.status == 1 else "Inactive"
+    return "Inactive"
+
+def _mod_by_formatter(view, context, model, name):
+    if model.modified_by:
+        role = UserRoles.query.filter_by(id=model.modified_by.role_id).first().role
+        return (model.modified_by.first_name + " " + model.modified_by.last_name + " (" + role + ")").title()
+    return ""
+
+def _cre_by_formatter(view, context, model, name):
+    if model.created_by:
+        role = UserRoles.query.filter_by(id=model.created_by.role_id).first().role
+        return (model.created_by.first_name + " " + model.created_by.last_name + " (" + role + ")").title()
     return ""
 
 class BaseView(ModelView):
@@ -960,10 +1067,135 @@ class BaseView(ModelView):
     edit_template = 'admin/edit.html'
     list_template = 'admin/list.html'
 
-class UserView(BaseView):
-    column_list = ('first_name', 'last_name', 'username')
-    form_columns = ('username', 'first_name', 'last_name', 'password')
+    @expose('/')
+    def index_view(self):
+        """
+            List view
+        """
+        if self.can_delete:
+            delete_form = self.delete_form()
+        else:
+            delete_form = None
 
+        # Grab parameters from URL
+        view_args = self._get_list_extra_args()
+
+        # Map column index to column name
+        sort_column = self._get_column_by_idx(view_args.sort)
+        if sort_column is not None:
+            sort_column = sort_column[0]
+
+        # Get page size
+        page_size = view_args.page_size or self.page_size
+
+        # Get count and data
+        count, data = self.get_list(view_args.page, sort_column, view_args.sort_desc,
+                                    view_args.search, view_args.filters, page_size=page_size)
+
+        list_forms = {}
+        if self.column_editable_list:
+            for row in data:
+                list_forms[self.get_pk_value(row)] = self.list_form(obj=row)
+
+        # Calculate number of pages
+        if count is not None and page_size:
+            num_pages = int(ceil(count / float(page_size)))
+        elif not page_size:
+            num_pages = 0  # hide pager for unlimited page_size
+        else:
+            num_pages = None  # use simple pager
+
+        # Various URL generation helpers
+        def pager_url(p):
+            # Do not add page number if it is first page
+            if p == 0:
+                p = None
+
+            return self._get_list_url(view_args.clone(page=p))
+
+        def sort_url(column, invert=False, desc=None):
+            if not desc and invert and not view_args.sort_desc:
+                desc = 1
+
+            return self._get_list_url(view_args.clone(sort=column, sort_desc=desc))
+
+        def page_size_url(s):
+            if not s:
+                s = self.page_size
+
+            return self._get_list_url(view_args.clone(page_size=s))
+
+        # Actions
+        actions, actions_confirmation = self.get_actions_list()
+        if actions:
+            action_form = self.action_form()
+        else:
+            action_form = None
+
+        clear_search_url = self._get_list_url(view_args.clone(page=0,
+                                                              sort=view_args.sort,
+                                                              sort_desc=view_args.sort_desc,
+                                                              search=None,
+                                                              filters=None))
+
+        return self.render(
+            self.list_template,
+            data=data,
+            list_forms=list_forms,
+            delete_form=delete_form,
+            action_form=action_form,
+
+            # List
+            list_columns=self._list_columns,
+            sortable_columns=self._sortable_columns,
+            editable_columns=self.column_editable_list,
+            list_row_actions=self.get_list_row_actions(),
+
+            # Pagination
+            count=count,
+            pager_url=pager_url,
+            num_pages=num_pages,
+            can_set_page_size=self.can_set_page_size,
+            page_size_url=page_size_url,
+            page=view_args.page,
+            page_size=page_size,
+            default_page_size=self.page_size,
+
+            # Sorting
+            sort_column=view_args.sort,
+            sort_desc=view_args.sort_desc,
+            sort_url=sort_url,
+
+            # Search
+            search_supported=self._search_supported,
+            clear_search_url=clear_search_url,
+            search=view_args.search,
+            search_placeholder=self.search_placeholder(),
+
+            # Filters
+            filters=self._filters,
+            filter_groups=self._get_filter_groups(),
+            active_filters=view_args.filters,
+            filter_args=self._get_filters(view_args.filters),
+
+            # Actions
+            actions=actions,
+            actions_confirmation=actions_confirmation,
+
+            # Misc
+            enumerate=enumerate,
+            get_pk_value=self.get_pk_value,
+            get_value=self.get_list_value,
+            get_raw_value=self._get_field_value,
+            return_url=self._get_list_url(view_args),
+        )
+
+class UserView(BaseView):
+    column_list = ('first_name', 'last_name', 'username', 'role', 'mpop')
+    form_columns = ('username', 'first_name', 'last_name', 'password', 'role', 'mpop')
+    column_labels = {
+        'mpop': 'Gateway/MPOP ID'
+    }
     form_args = {
         'username': {
             'validators' : [validators.InputRequired()]
@@ -980,92 +1212,118 @@ class UserView(BaseView):
     }
 
     form_overrides = dict(
-        password=PasswordField
+        password=PasswordField, 
     )
 
     def on_model_change(self, form, model, is_created):
+        if form.mpop.data == None or form.mpop.data == '':
+            if not str(form.role.data) == 'Tenant':
+                raise NotImplementedError('Please assign the MPOP ID for Manager/User.')
+        if form.mpop.data and str(form.role.data) == 'Tenant':
+            raise NotImplementedError('Please leave the MPOP ID blank for Tenant users.')
         model.password = generate_password_hash(form.password.data)
         model.first_name = form.first_name.data.title()
         model.last_name = form.last_name.data.title()
 
-    def is_accessible(self):
-        return current_user.is_authenticated
+    def on_model_delete(self,model):
+        if model.id == current_user.id:
+            raise NotImplementedError('Currently logged in user cannot be deleted.')
 
-class GatewayView(BaseView):
-    # column_exclude_list = ['modified_on', ]
-    column_list = ('gw_id', 'name', 'modified_by', 'modified_on')
-    column_labels = {
-        'gw_id': 'Access Point Gateway ID',
-        'name': 'Region or Municipality'
-    }
-    form_columns = ('gw_id', 'name', 'modified_on')
+    def is_accessible(self):
+        return (current_user.is_authenticated and current_user.role_id == 0)
+
+class ManagerUserView(UserView):
+    def get_query(self):
+      return self.session.query(self.model).filter(self.model.mpop_id==current_user.mpop_id)
+
+    def get_count_query(self):
+      return self.session.query(func.count('*')).filter(self.model.mpop_id==current_user.mpop_id)
 
     form_args = {
-        'modified_on': {
-            'default': str(datetime.datetime.now())
+        'username': {
+            'validators' : [validators.InputRequired()]
         },
+        'password': {
+            'validators' : [validators.InputRequired()]
+        },
+        'first_name': {
+            'validators' : [validators.InputRequired()]
+        },
+        'last_name': {
+            'validators' : [validators.InputRequired()]
+        },
+        'role': {
+            'query_factory': lambda:  db.session.query(UserRoles).filter_by(id=2)
+        },
+        'mpop': {
+            'query_factory': lambda:  db.session.query(Gateways).filter_by(gw_id=current_user.mpop_id),
+            'validators' : [validators.InputRequired()]
+        }
+    }
+
+    def is_accessible(self):
+        return (current_user.is_authenticated and current_user.role_id == 1)
+
+class GatewayView(BaseView):
+    edit_modal = True
+    # column_exclude_list = ['modified_on', ]
+    column_list = ('gw_id', 'name', 'created_by', 'created_on', 'modified_by', 'modified_on')
+    column_labels = {
+        'gw_id': 'Gateway/MPOP ID',
+        'name': 'Municipality Name'
+    }
+    form_columns = ('gw_id', 'name')
+    form_args = {
         'gw_id': {
-            'label': 'Access Point Gateway ID',
+            'label': 'Gateway/MPOP ID',
             'validators' : [validators.InputRequired()]
         },
         'name': {
-            'label': 'Region or Municipality Name',
+            'label': 'Municipality Name',
             'validators' : [validators.InputRequired()]
         }
     }
     form_overrides = dict(
-        modified_on=HiddenField,
         status=RadioField
     )
-    form_widget_args = {
-        'modified_on': {
-            'readOnly': True
-        }
-    }
     column_formatters = {
-        'modified_on': _date_formatter
+        'modified_on': _mod_date_formatter,
+        'created_on': _cre_date_formatter,
+        'modified_by': _mod_by_formatter,
+        'created_by': _cre_by_formatter
     }
 
     def on_model_change(self, form, model, is_created):
         model.modified_by = current_user
         if is_created:
-            model.modified_on = str(datetime.datetime.now())
+            model.created_by = current_user
+            model.created_on = str(datetime.datetime.now())
 
     def is_accessible(self):
-        return current_user.is_authenticated
+        return (current_user.is_authenticated and current_user.role_id == 0)
 
 
 class DataLimitsView(BaseView):
-    column_list = ('gateway_id', 'access_type', 'limit_type', 'value', 'status', 'modified_by', 'modified_on')
+    column_list = ('gateway_id', 'access_type', 'limit_type', 'value', 'status', 'created_by', 'created_on', 'modified_by', 'modified_on')
     column_labels = {
         'gateway_id': 'Region or Municipality',
         'value': 'Data Usage Limit (Bytes)'
     }
-    form_columns = ('gateway_id', 'access_type', 'limit_type', 'value', 'status', 'modified_on')
+    form_columns = ('gateway_id', 'access_type', 'limit_type', 'value', 'status')
     form_extra_fields = {
         'status': RadioField(
             'Status',
-            choices=[('1', 'Active'), ('2', 'Inactive')],validators=[validators.InputRequired()],default='1'
+            choices=[('1', 'Active'), ('0', 'Inactive')],validators=[validators.InputRequired()],default='0'
         )
     }
     form_overrides = dict(
         access_type=SelectField,
-        limit_type=SelectField,
-        modified_on=HiddenField,
+        limit_type=SelectField
     )
 
-    # def uniqueLimit(form, field):
-    #     existing_limit = Data_Limits.query.filter_by(gw_id=form.gateway_id.data.gw_id, access_type=form.access_type.data, limit_type=form.limit_type.data).first()
-    #     if existing_limit:
-    #         if existing_limit.id != id:
-    #             raise validators.ValidationError('This data limit for this gateway ID already exists.')
-
     form_args = {
-        'modified_on': {
-            'default': str(datetime.datetime.now())
-        },
         'gateway_id': {
-            'label': 'Region or Municipality',
+            'label': 'Gateway / MPOP ID',
             'validators' : [validators.InputRequired()]
         },
         'access_type': {
@@ -1089,11 +1347,7 @@ class DataLimitsView(BaseView):
             'validators' : [validators.InputRequired()]
         }
     }
-    form_widget_args = {
-        'modified_by': {
-            'disabled': True
-        }
-    }
+
     def _bytes_formatter(view, context, model, name):
         if model.value:
             return "{:,.0f}".format(model.value)
@@ -1117,55 +1371,98 @@ class DataLimitsView(BaseView):
     column_formatters = {
         'access_type': _access_formatter,
         'limit_type': _limit_formatter,
-        'modified_on': _date_formatter,
+        'created_on': _cre_date_formatter,
+        'modified_on': _mod_date_formatter,
         'value': _bytes_formatter,
-        'status': _status_formatter
+        'status': _status_formatter,
+        'modified_by': _mod_by_formatter,
+        'created_by': _cre_by_formatter
     }
 
     def on_model_change(self, form, model, is_created):
-        existing_limit = Data_Limits.query.filter_by(gw_id=form.gateway_id.data.gw_id, access_type=form.access_type.data, limit_type=form.limit_type.data).first()
-        # print(existing_limit.access_type, existing_limit.limit_type, existing_limit.gw_id)
-        # print(form.access_type.data + ", " + form.limit_type.data + ", " + form.gateway_id.data.gw_id)
-        # print(str(existing_limit.id) + ", " + str(model.id))
-        if existing_limit:
-            if existing_limit.id != model.id:
-                raise validators.ValidationError('This data limit for this gateway ID already exists.')
-        else:
-            #print('This is standard output', file=sys.stdout)
-            model.modified_by = current_user
-        if is_created:
-            if existing_limit:
-                if existing_limit.id != model.id:
-                    raise validators.ValidationError('This data limit for this gateway ID already exists.')
-            else:
-                model.modified_by = current_user
         model.modified_by = current_user
+        if is_created:
+            model.created_by = current_user
+            model.created_on = str(datetime.datetime.now())
 
     def is_accessible(self):
-        return current_user.is_authenticated
+        return (current_user.is_authenticated and current_user.role_id == 0)
 
-class UptimesView(BaseView):
-    hours = [('00:00:00','12:00 AM'),('01:00:00','01:00 AM'),('02:00:00','02:00 AM'),('03:00:00','03:00 AM'),('04:00:00','04:00 AM'),('05:00:00','05:00 AM'),
-            ('06:00:00','06:00 AM'),('07:00:00', '07:00 AM'),('08:00:00','08:00 AM'),('09:00:00','09:00 AM'),('10:00:00','10:00 AM'),('11:00:00','11:00 AM'),
-            ('12:00:00','12:00 PM'),('13:00:00','01:00 PM'),('14:00:00','02:00 PM'),('15:00:00','03:00 PM'),('16:00:00','04:00 PM'),('17:00:00','05:00 PM'),
-            ('18:00:00','06:00 PM'),('19:00:00', '07:00 PM'),('20:00:00','08:00 PM'),('21:00:00','09:00 PM'),('22:00:00','10:00 PM'),('23:00:00','11:00 PM')]
-    column_list = ('gateway_id', 'start_time', 'end_time', 'status', 'modified_by', 'modified_on')
-    column_labels = {
-        'gateway_id': 'Region or Municipality',
-    }
-    form_columns = ('gateway_id', 'start_time', 'end_time', 'status', 'modified_on')
-    form_extra_fields = {
-        'status': RadioField(
-            'Status',
-            choices=[('1', 'Active'), ('2', 'Inactive')],validators=[validators.InputRequired()],default='1'
-        )
-    }
+class ManagerDataLimitsView(DataLimitsView):
+
+    def get_query(self):
+      return self.session.query(self.model).filter(self.model.gw_id==current_user.mpop_id)
+
+    def get_count_query(self):
+      return self.session.query(func.count('*')).filter(self.model.gw_id==current_user.mpop_id)
+
     form_args = {
         'modified_on': {
             'default': str(datetime.datetime.now())
         },
         'gateway_id': {
-            'label': 'Region or Municipality',
+            'label': 'Gateway/MPOP ID',
+            'validators' : [validators.InputRequired()],
+            'query_factory' : lambda:  db.session.query(Gateways).filter_by(gw_id=current_user.mpop_id)
+        },
+        'access_type': {
+            'choices': [
+                ('1', 'Level 1: Free'),
+                ('2', 'Level 2: Registered'),
+                ('3', 'Level 3: Certified')
+            ],
+            'default': '1',
+            'validators' : [validators.InputRequired()]
+        },
+        'limit_type': {
+            'choices': [
+                ('dd', 'Daily'),
+                ('mm', 'Monthly')
+            ],
+            'default': 'dd',
+            'validators' : [validators.InputRequired()]
+        },
+        'value' : {
+            'validators' : [validators.InputRequired()]
+        }
+    }
+
+    def is_accessible(self):
+        return (current_user.is_authenticated and current_user.role_id == 1)
+
+class UserDataLimitsView(ManagerDataLimitsView):
+    form_columns = ('gateway_id', 'access_type', 'limit_type', 'value')
+
+    def on_model_change(self, form, model, is_created):
+        model.modified_by = current_user
+        if is_created:
+            model.created_by = current_user
+            model.created_on = str(datetime.datetime.now())
+            model.status = 0
+
+    def is_accessible(self):
+        return (current_user.is_authenticated and current_user.role_id > 1)
+
+hours = [('00:00:00','12:00 AM'),('01:00:00','01:00 AM'),('02:00:00','02:00 AM'),('03:00:00','03:00 AM'),('04:00:00','04:00 AM'),('05:00:00','05:00 AM'),
+            ('06:00:00','06:00 AM'),('07:00:00', '07:00 AM'),('08:00:00','08:00 AM'),('09:00:00','09:00 AM'),('10:00:00','10:00 AM'),('11:00:00','11:00 AM'),
+            ('12:00:00','12:00 PM'),('13:00:00','01:00 PM'),('14:00:00','02:00 PM'),('15:00:00','03:00 PM'),('16:00:00','04:00 PM'),('17:00:00','05:00 PM'),
+            ('18:00:00','06:00 PM'),('19:00:00', '07:00 PM'),('20:00:00','08:00 PM'),('21:00:00','09:00 PM'),('22:00:00','10:00 PM'),('23:00:00','11:00 PM')]
+
+class UptimesView(BaseView):      
+    column_list = ('gateway_id', 'start_time', 'end_time', 'status', 'created_by', 'created_on', 'modified_by', 'modified_on')
+    column_labels = {
+        'gateway_id': 'Gateway/MPOP ID',
+    }
+    form_columns = ('gateway_id', 'start_time', 'end_time', 'status')
+    form_extra_fields = {
+        'status': RadioField(
+            'Status',
+            choices=[('1', 'Active'), ('0', 'Inactive')],validators=[validators.InputRequired()],default='0'
+        )
+    }
+    form_args = {
+        'gateway_id': {
+            'label': 'Gateway/MPOP ID',
             'validators' : [validators.InputRequired()]
         },
         'start_time': {
@@ -1183,24 +1480,8 @@ class UptimesView(BaseView):
     }
     form_overrides = dict(
         start_time=SelectField,
-        end_time=SelectField,
-        modified_on=HiddenField
+        end_time=SelectField
     )
-    form_widget_args = {
-        'modified_on': {
-            'readOnly': True
-        }
-        # 'start_time': {
-        #     'placeholder': 'HH:MM PP',
-        #     'data-date-format': u'HH:ii P',
-        #     'data-show-meridian': 'True'
-        # },
-        # 'end_time': {
-        #     'placeholder': 'HH:MM PP',
-        #     'data-date-format': u'HH:ii P',
-        #     'data-show-meridian': 'True'
-        # }
-    }
 
     def _start_time_formatter(view, context, model, name):
         if model.start_time:
@@ -1213,19 +1494,67 @@ class UptimesView(BaseView):
         return ""
 
     column_formatters = {
-        'modified_on': _date_formatter,
+        'modified_on': _mod_date_formatter,
         'start_time': _start_time_formatter,
         'end_time': _end_time_formatter,
-        'status': _status_formatter
+        'status': _status_formatter,        
+        'modified_by': _mod_by_formatter,
+        'created_by': _cre_by_formatter
     }
 
     def on_model_change(self, form, model, is_created):
         model.modified_by = current_user
         if is_created:
-            model.modified_on = str(datetime.datetime.now())
+            model.created_by = current_user
+            model.created_on = str(datetime.datetime.now())
 
     def is_accessible(self):
-        return current_user.is_authenticated
+        return (current_user.is_authenticated and current_user.role_id == 0)
+
+class ManagerUptimesView(UptimesView):
+    def get_query(self):
+      return self.session.query(self.model).filter(self.model.gw_id==current_user.mpop_id)
+
+    def get_count_query(self):
+      return self.session.query(func.count('*')).filter(self.model.gw_id==current_user.mpop_id)
+
+    form_args = {
+        'gateway_id': {
+            'label': 'Gateway / MPOP ID',
+            'validators' : [validators.InputRequired()],
+            'query_factory' : lambda:  db.session.query(Gateways).filter_by(gw_id=current_user.mpop_id)
+        },
+        'start_time': {
+            'validators' : [validators.InputRequired()],
+            'choices': hours
+            # 'format': '%I:%M %p',
+            # 'description': "must be 12 hr format, ex. '07:00 AM'"
+        },
+        'end_time': {
+            'validators' : [validators.InputRequired()],
+            'choices': hours
+            # 'format': '%I:%M %p',
+            # 'description': "must be 12 hr format, ex. '01:00 PM'"
+            }
+    }
+
+    def is_accessible(self):
+        return (current_user.is_authenticated and current_user.role_id == 1)
+
+class UserUptimesView(ManagerUptimesView):
+
+    form_columns = ('gateway_id', 'start_time', 'end_time')
+
+    def on_model_change(self, form, model, is_created):
+        model.modified_by = current_user
+        if is_created:
+            model.created_by = current_user
+            model.created_on = str(datetime.datetime.now())
+            model.status = 0
+
+    def is_accessible(self):
+        return (current_user.is_authenticated and current_user.role_id == 1)
+
 
 app.config['UPLOADED_IMAGES_DEST'] = imagedir = os.path.join(os.path.dirname(__file__), 'static/uploads')
 app.config['UPLOADED_IMAGES_URL'] = '/static/uploads/'
@@ -1250,7 +1579,7 @@ class AnnouncementsView(BaseView):
     ]
 
     column_labels = {
-        'gateway_id': 'Region or Municipality', 'image': 'Announcement Image'
+        'gateway_id': 'Gateway/MPOP ID', 'image': 'Announcement Image'
     }
 
     form_extra_fields = {
@@ -1261,7 +1590,7 @@ class AnnouncementsView(BaseView):
         ),
         'status': RadioField(
             'Status',
-            choices=[('1', 'Active'), ('2', 'Inactive')],validators=[validators.InputRequired()],default='1'
+            choices=[('1', 'Active'), ('0', 'Inactive')],validators=[validators.InputRequired()],default='0'
         )
     }
     form_columns = ('gateway_id', 'name', 'path', 'status', 'modified_on')
@@ -1271,7 +1600,7 @@ class AnnouncementsView(BaseView):
             'default': str(datetime.datetime.now())
         },
         'gateway_id': {
-            'label': 'Region or Municipality',
+            'label': 'Gateway/MPOP ID',
             'validators' : [validators.InputRequired()]
         },
         'modified_by': {
@@ -1293,9 +1622,10 @@ class AnnouncementsView(BaseView):
     }
     
     column_formatters = {
-        'modified_on': _date_formatter,
+        'modified_on': _mod_date_formatter,
         'image': _list_thumbnail,
-        'status': _status_formatter
+        'status': _status_formatter,
+        'modified_by': _mod_by_formatter
     }
 
     def on_model_change(self, form, model, is_created):
@@ -1304,7 +1634,7 @@ class AnnouncementsView(BaseView):
             model.modified_on = str(datetime.datetime.now())
 
     def is_accessible(self):
-        return current_user.is_authenticated
+        return (current_user.is_authenticated and current_user.role_id == 0)
 
 
 @event.listens_for(Announcements, 'after_delete')
@@ -1322,7 +1652,7 @@ class LogosView(BaseView):
     ]
 
     column_labels = {
-        'gateway_id': 'Region or Municipality', 'image': 'Logo Image'
+        'gateway_id': 'Gateway/MPOP ID', 'image': 'Logo Image'
     }
 
     form_extra_fields = {
@@ -1333,7 +1663,7 @@ class LogosView(BaseView):
         ),
         'status': RadioField(
             'Status',
-            choices=[('1', 'Active'), ('2', 'Inactive')],validators=[validators.InputRequired()],default='1'
+            choices=[('1', 'Active'), ('0', 'Inactive')],validators=[validators.InputRequired()],default='0'
         )
     }
 
@@ -1341,7 +1671,7 @@ class LogosView(BaseView):
 
     form_args = {
         'gateway_id': {
-            'label': 'Region or Municipality',
+            'label': 'Gateway/MPOP ID',
             'validators' : [validators.InputRequired()]
         },
         'name': {
@@ -1352,9 +1682,10 @@ class LogosView(BaseView):
   
     
     column_formatters = {
-        'modified_on': _date_formatter,
+        'modified_on': _mod_date_formatter,
         'image': _list_thumbnail,
-        'status': _status_formatter
+        'status': _status_formatter,
+        'modified_by': _mod_by_formatter
     }
 
     def on_model_change(self, form, model, is_created):
@@ -1382,7 +1713,6 @@ class AdminIndexView(admin.AdminIndexView):
         return super(AdminIndexView, self).index()
 
     @expose('/sign-in/', methods=('GET', 'POST'))
-    @csrf.exempt
     def login_view(self):
         # handle user login
         form = LoginForm(request.form)
@@ -1435,12 +1765,17 @@ app.config['FLASK_ADMIN_FLUID_LAYOUT'] = True
 #app.config['FLASK_ADMIN_SWATCH'] = 'flatly'
 
 # Add view
-admin.add_view(UserView(Admin_Users, db.session, name='Users'))
 admin.add_view(GatewayView(Gateways, db.session, name='Gateways'))
+admin.add_view(UserView(Admin_Users, db.session, name='Users'))
+admin.add_view(ManagerUserView(Admin_Users, db.session, name='Users', endpoint='users_mgr'))
 admin.add_view(DataLimitsView(Data_Limits, db.session, name="Data Limits"))
+admin.add_view(ManagerDataLimitsView(Data_Limits, db.session, name="Data Limits", endpoint='limits_mgr'))
+admin.add_view(UserDataLimitsView(Data_Limits, db.session, name="Data Limits", endpoint='limits_usr'))
 admin.add_view(UptimesView(Uptimes, db.session, name="Portal Uptimes"))
-admin.add_view(AnnouncementsView(Announcements, db.session))
+admin.add_view(ManagerUptimesView(Uptimes, db.session, name="Portal Uptimes", endpoint='uptimes_mgr'))
+admin.add_view(UserUptimesView(Uptimes, db.session, name="Portal Uptimes", endpoint='uptimes_usr'))
 admin.add_view(LogosView(Logos, db.session))
+admin.add_view(AnnouncementsView(Announcements, db.session))
 
 if __name__ == '__main__':
     app.run()

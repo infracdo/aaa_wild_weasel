@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>PIPOL KONEK</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='styles.css') }}"
+    />
+  </head>
+  <body>
+    <div class="home-header"></div>
+    <div class="content-container">
+      <div class="top-bar"></div>
+      <section class="logo-row">
+        <div class="login-logo"><h1>PIPOL KONEK</h1></div>
+      </section>
+
+      <h2>Reset Password</h2>
+      <br />
+      <form class="form" action="/reset/{{ token }}" method="post">
+        <fieldset>
+          <label for="password1">New Password</label>
+          <input type="password" name="password1" />
+          <label for="password2">Re-enter Password</label>
+          <input type="password" name="password2"/>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          {% if message %}
+          <p>
+            <b>{{ message }}</b>
+          </p>
+          {% endif %}
+          <button type="submit" class="enter-button form-button">
+            Reset
+          </button>
+        </fieldset>
+      </form>
+      <br /><br /><br />
+      <div class="copyright-footer">
+        <p>Apollo Technologies, Inc. &copy; 2019</p>
+      </div>
+    </div>
+    <br /><br />
+  </body>
+</html>
