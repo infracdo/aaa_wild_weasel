@@ -12,7 +12,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from pyrad.dictionary import Dictionary
 from pyrad.client import Client
 from pyrad.packet import Packet
-from models import db, Transaction, Devices, Registered_Users, CertifiedDevices, Admin_Users, Gateways, Data_Limits, Uptimes, Announcements, Logos, RegisterUser, UserRoles
+from models import db, Transaction, Devices, Registered_Users, CertifiedDevices, Admin_Users, Gateways, Data_Limits, Uptimes, Announcements, Logos, RegisterUser, UserRoles, GatewayGroup, GatewayGroups, GroupAnnouncements
 from googletrans import Translator
 import pyrad.packet
 import datetime, socket, uuid, os, re
@@ -1191,7 +1191,7 @@ class BaseView(ModelView):
         )
 
 class UserView(BaseView):
-    column_list = ('first_name', 'last_name', 'username', 'role', 'mpop')
+    column_list = ('first_name', 'last_name', 'username', 'role', 'mpop', 'created_by', 'created_on')
     form_columns = ('username', 'first_name', 'last_name', 'password', 'role', 'mpop')
     column_labels = {
         'mpop': 'Gateway/MPOP ID'
@@ -1215,6 +1215,11 @@ class UserView(BaseView):
         password=PasswordField, 
     )
 
+    column_formatters = {
+        'created_on': _cre_date_formatter,
+        'created_by': _cre_by_formatter
+    }
+
     def on_model_change(self, form, model, is_created):
         if form.mpop.data == None or form.mpop.data == '':
             if not str(form.role.data) == 'Tenant':
@@ -1224,6 +1229,9 @@ class UserView(BaseView):
         model.password = generate_password_hash(form.password.data)
         model.first_name = form.first_name.data.title()
         model.last_name = form.last_name.data.title()
+        if is_created:
+            model.created_by = current_user
+            model.created_on = str(datetime.datetime.now())
 
     def on_model_delete(self,model):
         if model.id == current_user.id:
@@ -1266,7 +1274,6 @@ class ManagerUserView(UserView):
 
 class GatewayView(BaseView):
     edit_modal = True
-    # column_exclude_list = ['modified_on', ]
     column_list = ('gw_id', 'name', 'created_by', 'created_on', 'modified_by', 'modified_on')
     column_labels = {
         'gw_id': 'Gateway/MPOP ID',
@@ -1575,7 +1582,7 @@ def _list_thumbnail(view, context, model, name):
 class AnnouncementsView(BaseView):
 
     column_list = [
-        'gateway_id', 'image', 'status', 'modified_by', 'modified_on'
+        'gateway_id', 'image', 'status', 'created_by', 'created_on', 'modified_by', 'modified_on'
     ]
 
     column_labels = {
@@ -1593,31 +1600,16 @@ class AnnouncementsView(BaseView):
             choices=[('1', 'Active'), ('0', 'Inactive')],validators=[validators.InputRequired()],default='0'
         )
     }
-    form_columns = ('gateway_id', 'name', 'path', 'status', 'modified_on')
+    form_columns = ('gateway_id', 'name', 'path', 'status')
 
     form_args = {
-        'modified_on': {
-            'default': str(datetime.datetime.now())
-        },
         'gateway_id': {
             'label': 'Gateway/MPOP ID',
             'validators' : [validators.InputRequired()]
         },
-        'modified_by': {
-            'default': current_user
-        },
         'name': {
             'validators' : [validators.InputRequired()],
             'label': 'Image Name'
-        }
-    }
-
-    form_overrides = dict(
-        modified_on=HiddenField
-    )
-    form_widget_args = {
-        'modified_on': {
-            'readOnly': True
         }
     }
     
@@ -1625,16 +1617,55 @@ class AnnouncementsView(BaseView):
         'modified_on': _mod_date_formatter,
         'image': _list_thumbnail,
         'status': _status_formatter,
-        'modified_by': _mod_by_formatter
+        'modified_by': _mod_by_formatter,
+        'created_by': _cre_by_formatter,
+        'created_on': _cre_date_formatter
     }
 
     def on_model_change(self, form, model, is_created):
         model.modified_by = current_user
         if is_created:
+            model.created_by = current_user
             model.modified_on = str(datetime.datetime.now())
 
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 0)
+
+class ManagerAnnouncementsView(AnnouncementsView):
+    def get_query(self):
+      return self.session.query(self.model).filter(self.model.gw_id==current_user.mpop_id)
+
+    def get_count_query(self):
+      return self.session.query(func.count('*')).filter(self.model.gw_id==current_user.mpop_id)
+
+    form_args = {
+        'gateway_id': {
+            'label': 'Gateway/MPOP ID',
+            'validators' : [validators.InputRequired()],
+            'query_factory' : lambda:  db.session.query(Gateways).filter_by(gw_id=current_user.mpop_id)
+        },
+        'name': {
+            'validators' : [validators.InputRequired()],
+            'label': 'Image Name'
+        }
+    }
+
+    def is_accessible(self):
+        return (current_user.is_authenticated and current_user.role_id == 1)
+
+class UserAnnouncementsView(ManagerAnnouncementsView):
+
+    form_columns = ('gateway_id', 'name', 'path')
+
+    def on_model_change(self, form, model, is_created):
+        model.modified_by = current_user
+        if is_created:
+            model.created_by = current_user
+            model.created_on = str(datetime.datetime.now())
+            model.status = 0
+
+    def is_accessible(self):
+        return (current_user.is_authenticated and current_user.role_id == 2)
 
 
 @event.listens_for(Announcements, 'after_delete')
@@ -1645,10 +1676,71 @@ def del_image(mapper, connection, target):
         except OSError:
             pass
 
+class GroupAnnouncementsView(BaseView):
+
+    column_list = [
+        'group', 'image', 'status', 'created_by', 'created_on', 'modified_by', 'modified_on'
+    ]
+
+    column_labels = {
+        'group': 'Gateway Group', 'image': 'Announcement Image'
+    }
+
+    form_extra_fields = {
+        'path': admin_form.ImageUploadField(
+            'Image',
+            base_path=imagedir,
+            url_relative_path='uploads/',validators=[validators.InputRequired()]
+        ),
+        'status': RadioField(
+            'Status',
+            choices=[('1', 'Active'), ('0', 'Inactive')],validators=[validators.InputRequired()],default='0'
+        )
+    }
+    form_columns = ('group', 'name', 'path', 'status')
+
+    form_args = {
+        'group': {
+            'label': 'Gateway Group',
+            'validators' : [validators.InputRequired()]
+        },
+        'name': {
+            'validators' : [validators.InputRequired()],
+            'label': 'Image Name'
+        }
+    }
+    
+    column_formatters = {
+        'modified_on': _mod_date_formatter,
+        'image': _list_thumbnail,
+        'status': _status_formatter,
+        'modified_by': _mod_by_formatter,
+        'created_by': _cre_by_formatter,
+        'created_on': _cre_date_formatter
+    }
+
+    def on_model_change(self, form, model, is_created):
+        model.modified_by = current_user
+        if is_created:
+            model.created_by = current_user
+            model.modified_on = str(datetime.datetime.now())
+
+    def is_accessible(self):
+        return (current_user.is_authenticated and current_user.role_id == 0)
+
+
+@event.listens_for(GroupAnnouncements, 'after_delete')
+def del_image(mapper, connection, target):
+    if target.filepath is not None:
+        try:
+            os.remove(target.filepath)
+        except OSError:
+            pass
+
 class LogosView(BaseView):
 
     column_list = [
-        'image', 'gateway_id', 'status', 'modified_by', 'modified_on'
+        'image', 'gateway_id', 'status', 'created_by', 'created_on', 'modified_by', 'modified_on'
     ]
 
     column_labels = {
@@ -1678,21 +1770,61 @@ class LogosView(BaseView):
             'validators' : [validators.InputRequired()],
             'label': 'Image Name'
         }
-    }
-  
+    }  
     
     column_formatters = {
         'modified_on': _mod_date_formatter,
         'image': _list_thumbnail,
         'status': _status_formatter,
-        'modified_by': _mod_by_formatter
+        'modified_by': _mod_by_formatter,
+        'created_by': _cre_by_formatter,
+        'created_on': _cre_date_formatter
     }
 
     def on_model_change(self, form, model, is_created):
         model.modified_by = current_user
+        if is_created:
+            model.created_by = current_user
+            model.created_on = str(datetime.datetime.now())
 
     def is_accessible(self):
         return current_user.is_authenticated
+
+class ManagerLogosView(LogosView):
+    def get_query(self):
+      return self.session.query(self.model).filter(self.model.gw_id==current_user.mpop_id)
+
+    def get_count_query(self):
+      return self.session.query(func.count('*')).filter(self.model.gw_id==current_user.mpop_id)
+
+    form_args = {
+        'gateway_id': {
+            'label': 'Gateway/MPOP ID',
+            'validators' : [validators.InputRequired()],
+            'query_factory' : lambda:  db.session.query(Gateways).filter_by(gw_id=current_user.mpop_id)
+        },
+        'name': {
+            'validators' : [validators.InputRequired()],
+            'label': 'Image Name'
+        }
+    }
+
+    def is_accessible(self):
+        return (current_user.is_authenticated and current_user.role_id == 2)
+
+class UserLogosView(ManagerLogosView):
+
+    form_columns = ('gateway_id', 'name', 'path', 'status')
+
+    def on_model_change(self, form, model, is_created):
+        model.modified_by = current_user
+        if is_created:
+            model.created_by = current_user
+            model.created_on = str(datetime.datetime.now())
+            model.status = 0
+
+    def is_accessible(self):
+        return (current_user.is_authenticated and current_user.role_id == 2)
 
 @event.listens_for(Logos, 'after_delete')
 def del_image(mapper, connection, target):
@@ -1701,6 +1833,13 @@ def del_image(mapper, connection, target):
             os.remove(target.filepath)
         except OSError:
             pass
+
+class GatewayGroupsView(BaseView):
+    column_list = ('name', 'gateways')
+
+    def is_accessible(self):
+        return (current_user.is_authenticated and current_user.role_id == 0)
+
 
 # Create customized index view class that handles login & registration
 
@@ -1766,6 +1905,7 @@ app.config['FLASK_ADMIN_FLUID_LAYOUT'] = True
 
 # Add view
 admin.add_view(GatewayView(Gateways, db.session, name='Gateways'))
+admin.add_view(GatewayGroupsView(GatewayGroup,db.session, name='Gateway Groups'))
 admin.add_view(UserView(Admin_Users, db.session, name='Users'))
 admin.add_view(ManagerUserView(Admin_Users, db.session, name='Users', endpoint='users_mgr'))
 admin.add_view(DataLimitsView(Data_Limits, db.session, name="Data Limits"))
@@ -1775,7 +1915,12 @@ admin.add_view(UptimesView(Uptimes, db.session, name="Portal Uptimes"))
 admin.add_view(ManagerUptimesView(Uptimes, db.session, name="Portal Uptimes", endpoint='uptimes_mgr'))
 admin.add_view(UserUptimesView(Uptimes, db.session, name="Portal Uptimes", endpoint='uptimes_usr'))
 admin.add_view(LogosView(Logos, db.session))
+admin.add_view(ManagerLogosView(Logos, db.session, name="Logos", endpoint='logos_mgr'))
+admin.add_view(UserLogosView(Logos, db.session, name="Logos", endpoint='logos_usr'))
 admin.add_view(AnnouncementsView(Announcements, db.session))
+admin.add_view(ManagerAnnouncementsView(Announcements, db.session, name="Announcements", endpoint='announcements_mgr'))
+admin.add_view(UserAnnouncementsView(Announcements, db.session, name="Announcements", endpoint='announcements_usr'))
+admin.add_view(GroupAnnouncementsView(GroupAnnouncements, db.session, name="Group Announcements"))
 
 if __name__ == '__main__':
     app.run()

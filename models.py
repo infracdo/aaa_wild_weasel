@@ -153,6 +153,9 @@ class Admin_Users(db.Model):
     role = db.relationship("UserRoles", foreign_keys=[role_id])
     mpop_id = db.Column(db.String, db.ForeignKey('gateways.gw_id', ondelete='RESTRICT'))
     mpop = db.relationship("Gateways", foreign_keys=[mpop_id])
+    created_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'))
+    created_by = db.relationship("Admin_Users", foreign_keys=[created_by_id])
+    created_on = db.Column(db.String)
     # gateways = db.relationship(
     #     "Gateways", backref="modified_by", lazy="dynamic", foreign_keys=[])
     # limits = db.relationship(
@@ -202,6 +205,19 @@ class Admin_Users(db.Model):
     def __repr__(self):
         return self.username
 
+class GatewayGroup(db.Model):
+    """Model for the mpop groups table"""
+    __tablename__ = 'gateway_group'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String, unique=True)
+
+    def __str__(self):
+        return self.name
+
+    def __repr__(self):
+        return self.id
+
 class Gateways(db.Model):
     """Model for the mpop ids table"""
     __tablename__ = 'gateways'
@@ -225,6 +241,7 @@ class Gateways(db.Model):
         "Announcements", backref="gateway_id", lazy="dynamic", passive_deletes='all')
     logos = db.relationship(
         "Logos", backref="gateway_id", lazy="dynamic", passive_deletes='all')
+    groups = db.relationship('GatewayGroup', secondary="gateway_groups",backref=db.backref('gateways'))
 
     def get_gw_id(self):
         return self.gw_id
@@ -232,7 +249,15 @@ class Gateways(db.Model):
     def __repr__(self):
         return self.gw_id
 
-
+class GatewayGroups(db.Model):
+    __tablename__="gateway_groups"
+    
+    id = db.Column(db.Integer(), primary_key=True)
+    gw_id = db.Column(db.String(), db.ForeignKey('gateways.gw_id', ondelete='RESTRICT'), nullable=False)
+    gateway = db.relationship("Gateways", foreign_keys=[gw_id])
+    group_id = db.Column(db.Integer(), db.ForeignKey('gateway_group.id', ondelete='RESTRICT'), nullable=False)
+    group = db.relationship("GatewayGroup", foreign_keys=[group_id])
+    
 class Data_Limits(db.Model):
     """Model for the data limits table"""
     __tablename__ = 'data_limits'
@@ -289,6 +314,40 @@ class Announcements(db.Model):
     gw_id = db.Column(db.String, db.ForeignKey(
         'gateways.gw_id', ondelete='RESTRICT'), unique=True, nullable=False)
     modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
+    modified_by = db.relationship("Admin_Users", foreign_keys=[modified_by_id])
+    modified_on = db.Column(
+        db.String, default=datetime.datetime.now, onupdate=datetime.datetime.now)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
+    created_by = db.relationship("Admin_Users", foreign_keys=[created_by_id])
+    created_on = db.Column(db.String)
+
+    def __unicode__(self):
+        return self.name
+
+    @property
+    def url(self):
+        return images.url(self.path)
+
+    @property
+    def filepath(self):
+        if self.path is None:
+            return
+        return images.path(self.path)
+
+
+class GroupAnnouncements(db.Model):
+    """Model for the announcement images table"""
+    __tablename__ = 'group_announcements'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.Unicode(64))
+    path = db.Column(db.Unicode(128))
+    status = db.Column(db.SmallInteger, default=0)
+    group_id = db.Column(db.Integer, db.ForeignKey(
+        'gateway_group.id', ondelete='RESTRICT'), unique=True, nullable=False)
+    group = db.relationship("GatewayGroup", foreign_keys=[group_id])
+    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
+    modified_by = db.relationship("Admin_Users", foreign_keys=[modified_by_id])
     modified_on = db.Column(
         db.String, default=datetime.datetime.now, onupdate=datetime.datetime.now)
     created_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
@@ -320,6 +379,7 @@ class Logos(db.Model):
     gw_id = db.Column(db.String, db.ForeignKey(
         'gateways.gw_id', ondelete='RESTRICT'), unique=True, nullable=False)
     modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
+    modified_by = db.relationship("Admin_Users", foreign_keys=[modified_by_id])
     modified_on = db.Column(
         db.String, default=datetime.datetime.now, onupdate=datetime.datetime.now)
     created_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
