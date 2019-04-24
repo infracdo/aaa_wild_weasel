@@ -10,6 +10,8 @@
       rel="stylesheet"
       href="{{url_for('static', filename='tables.min.css')}}"
     />
+    <script src="{{ url_for('static', filename='jquery-3.3.1.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='responsiveslides.min.js') }}"></script>
   </head>
   <body>
     <div class="home-header"></div>
@@ -65,15 +67,27 @@
         ><button class="enter-button portal-next">Next</button></a
       >
       <br /><br />
-      {% if ad_img_path %}
+      {% if announcements %}
+      <br /><br />
       <section>
-        <img src="{{ url_for('static', filename=ad_img_path) }}" />
+        <ul class="rslides">
+          {% for a in announcements %}
+          <li><img src="{{ url_for('static', filename=a) }}" alt=""></li>
+          {% endfor %}
+        </ul>
       </section>
+      <br /><br />
       {% endif %}
-      <!-- <div class="copyright-footer">
-        <p>Apollo Technologies, Inc. &copy; 2019</p>
-      </div> -->
+      <br /><br />
+      <div class="copyright-footer">
+        <p>Apollo Technologies, Inc. &copy; 2019 | <a href="#">Contact Us</a></p>
+      </div>
       <br /><br />
     </div>
   </body>
+  <script>
+      $(function() {
+        $(".rslides").responsiveSlides();
+      });
+    </script>
 </html>

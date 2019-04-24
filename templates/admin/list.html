@@ -130,8 +130,8 @@
                             {% for action in list_row_actions %}
                             {% if action.template_name == 'row_actions.edit_row' or action.template_name == 'row_actions.edit_row_popup' %}
                                 {% if current_user.role_id == 2 %}
-                                    {% if get_raw_value(row, 'status') %}
-                                        {% if get_raw_value(row, 'status') > 0 %}
+                                    {% if not get_raw_value(row, 'status') == None %}
+                                        {% if get_raw_value(row, 'status') == 0 %}
                                             {% if get_raw_value(row, 'created_by').role_id == 2 %}
                                                 {{ action.render_ctx(get_pk_value(row), row) }}
                                             {% endif %}

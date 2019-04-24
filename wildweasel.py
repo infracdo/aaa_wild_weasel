@@ -42,7 +42,7 @@ app.secret_key = b'_5#y2L!.4Q8z\n\xec]/'
 #     'port': '5432',
 # }
 
-pyradServer = "192.168.88.146"
+pyradServer = "192.168.88.145"
 
 POSTGRES = {
     'user': 'wildweasel',
@@ -53,9 +53,9 @@ POSTGRES = {
 }
 
 RADIUS = {
-    'user': 'freeradius',
+    'user': 'radiator',
     'pw': 'ap0ll0',
-    'db': 'freeradius',
+    'db': 'radius',
     'host': '192.168.88.145',
     'port': '5432',
 }
@@ -87,7 +87,7 @@ def ping():
 # <------ GET DATA LIMIT SETTINGS | @getLimit ------>
 def getLimit(gw_id, access_type, limit_type, default):
     _default = Data_Limits.query.filter_by(
-        gw_id='default', access_type=access_type, limit_type=limit_type,status=1).first()
+        gw_id='DEFAULT', access_type=access_type, limit_type=limit_type,status=1).first()
     default = default if _default == None else _default.value
     limit = Data_Limits.query.filter_by(
         gw_id=gw_id, access_type=access_type, limit_type=limit_type,status=1).first()
@@ -159,6 +159,8 @@ def login():
             acct_req["NAS-Identifier"] = trans.gw_id
             acct_req["Framed-IP-Address"] = trans.ip
             acct_req["Acct-Session-Id"] = trans.mac
+            acct_req["Login-LAT-Service"] = trans.package
+            acct_req["Connect-Info"] = trans.device
             acct_req["Acct-Status-Type"] = "Start"
             try:
                 reply = srv.SendPacket(acct_req)
@@ -180,14 +182,15 @@ def login():
                 if reguser:
                     if reguser.status == 0:
                         message = "Access denied! Your email address has not been verified."
-                        resp = make_response(render_template('login.html', message=message))
+                        resp = make_response(render_template('logout.html', message=message, returnLink=url_for('access')))
                         resp.set_cookie('token', token)
                         return resp
-                    if int(reguser.validated) == 0:
-                        registered = datetime.datetime.strptime(reguser.registration_date, '%Y-%m-%d %H:%M:%S.%f')
-                        elapsed_time = datetime.datetime.now() - registered
-                        if elapsed_time > datetime.timedelta(days=30):
-                            return render_template('logout.html', message="Your account has not been validated and your registration has expired. Please contact DICT.", returnLink=url_for('access'))
+                    # Check for 30 Day Expiry / Validation 
+                    # if int(reguser.validated) == 0:
+                    #     registered = datetime.datetime.strptime(reguser.registration_date, '%Y-%m-%d %H:%M:%S.%f')
+                    #     elapsed_time = datetime.datetime.now() - registered
+                    #     if elapsed_time > datetime.timedelta(days=30):
+                    #         return render_template('logout.html', message="Your account has not been validated and your registration has expired. Please contact DICT.", returnLink=url_for('access'))
                 # check login credentials
                 # @tofollow: password encryption
                 session['uname'] = uname
@@ -238,6 +241,8 @@ def login():
                     acct_req["NAS-Identifier"] = trans.gw_id
                     acct_req["Framed-IP-Address"] = trans.ip
                     acct_req["Acct-Session-Id"] = trans.mac
+                    acct_req["Login-LAT-Service"] = trans.package
+                    acct_req["Connect-Info"] = trans.device
                     acct_req["Acct-Status-Type"] = "Start"
                     try:
                         reply = srv.SendPacket(acct_req)
@@ -278,6 +283,8 @@ def login():
         # if portal downtime, don't proceed
         today = datetime.date.today().strftime('%Y-%m-%d')
         uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
+        if not uptime:
+            uptime = Uptimes.query.filter_by(gw_id='DEFAULT',status=1).first()
         tz = get_localzone()
         if uptime:
             start = datetime.time(*map(int, str(uptime.start_time).split(':')))
@@ -334,6 +341,8 @@ def lang():
     if not session.get('ip'):
         return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
     uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
+    if not uptime:
+        uptime = Uptimes.query.filter_by(gw_id='DEFAULT',status=1).first()
     tz = get_localzone()
     if uptime:
         start = datetime.time(*map(int, str(uptime.start_time).split(':')))
@@ -350,6 +359,8 @@ def terms(lang):
     if not session.get('ip'):
         return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
     uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
+    if not uptime:
+        uptime = Uptimes.query.filter_by(gw_id='DEFAULT',status=1).first()
     tz = get_localzone()
     if uptime:
         start = datetime.time(*map(int, str(uptime.start_time).split(':')))
@@ -373,7 +384,7 @@ def getLogo(gw_id):
     if logo:
         return 'uploads/' + logo.path
     else:
-        default = Logos.query.filter_by(gw_id='default', status=1).first()
+        default = Logos.query.filter_by(gw_id='DEFAULT', status=1).first()
         if default:
             return 'uploads/' + default.path
     return None
@@ -390,6 +401,8 @@ def access(lang=None):
     
     #redirect if portal downtime
     uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
+    if not uptime:
+        uptime = Uptimes.query.filter_by(gw_id='DEFAULT',status=1).first()
     tz = get_localzone()
     if uptime:
         start = datetime.time(*map(int, str(uptime.start_time).split(':')))
@@ -416,6 +429,8 @@ def loginReg(lang=None):
     
     #redirect if portal downtime
     uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
+    if not uptime:
+        uptime = Uptimes.query.filter_by(gw_id='DEFAULT',status=1).first()
     tz = get_localzone()
     if uptime:
         start = datetime.time(*map(int, str(uptime.start_time).split(':')))
@@ -440,6 +455,8 @@ def auth():
     acct_req["NAS-Identifier"] = trans.gw_id
     acct_req["Framed-IP-Address"] = trans.ip
     acct_req["Acct-Session-Id"] = trans.mac
+    acct_req["Login-LAT-Service"] = trans.package
+    acct_req["Connect-Info"] = trans.device
 
     # Stop connection during logout stage and update database
     if stage_n == "logout":
@@ -676,10 +693,25 @@ def getAnnouncement(gw_id):
     if announcement:
         return 'uploads/' + announcement.path
     else:
-        default = Announcements.query.filter_by(gw_id='default', status=1).first()
+        default = Announcements.query.filter_by(gw_id='DEFAULT', status=1).first()
         if default:
             return 'uploads/' + default.path
     return None
+
+def getAnnouncements(gw_id):
+    groups = [g.group_id for g in GatewayGroups.query.filter_by(gw_id=gw_id).all()]
+    announcements = []
+    default = Announcements.query.filter_by(gw_id='DEFAULT', status=1).first()
+    if default:
+        announcements.append('uploads/' + default.path)
+    if groups:
+        for g in groups:
+            if GroupAnnouncements.query.filter_by(group_id=g, status=1).first():
+                announcements.append('uploads/' + GroupAnnouncements.query.filter_by(group_id=g, status=1).first().path)
+    announcement = Announcements.query.filter_by(gw_id=gw_id, status=1).first()
+    if announcement:
+        announcements.append('uploads/' + announcement.path)
+    return announcements
 
 
 # <------ PORTAL | @portal  ------>
@@ -738,7 +770,7 @@ def portal():
             monthly_remaining = "{0:.2f}".format(month_rem / 1000000)
     ddd_limit = "{0:.2f}".format(daily_limit/1000000000)
     mmm_limit = "{0:.2f}".format(month_limit/1000000000)
-    return render_template('portal.html', daily_used=daily_used, monthly_used=monthly_used, daily_remaining=daily_remaining, monthly_remaining=monthly_remaining, daily_limit=ddd_limit, monthly_limit=mmm_limit, ad_img_path=getAnnouncement(session['gw_id']), display_type=display_type)
+    return render_template('portal.html', daily_used=daily_used, monthly_used=monthly_used, daily_remaining=daily_remaining, monthly_remaining=monthly_remaining, daily_limit=ddd_limit, monthly_limit=mmm_limit, announcements=getAnnouncements(session['gw_id']), display_type=display_type)
 
 
 # <------ REGISTERED MEMBER SIGN UP FORM | @regForm ------>
@@ -761,7 +793,10 @@ class RegisterForm(FlaskForm):
             raise validators.ValidationError('Email already registered.')
 
     email = StringField('email', validators=[validators.InputRequired(), validators.Email(message='Please enter a valid email address.'), uniqueEmailValidator])
-    full_name = StringField('full_name', validators=[validators.InputRequired()])
+    fname = StringField('fname', validators=[validators.InputRequired()])
+    lname = StringField('lame', validators=[validators.InputRequired()])
+    mname = StringField('mname')
+    ename = StringField('ename')
     address = TextAreaField('address',validators=[validators.InputRequired()])
     phone_no = StringField('phone_no', validators=[validators.InputRequired(),validators.Regexp(r'^[\d]*$',message="Please enter a valid number."),validators.Length(min=7,message="Phone number too short.")])
     year_range = [str(i) for i in list(reversed(range(1900,datetime.date.today().year + 1,1)))]
@@ -783,6 +818,8 @@ def register():
     if not session.get('ip'):
         return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
     uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
+    if not uptime:
+        uptime = Uptimes.query.filter_by(gw_id='DEFAULT',status=1).first()
     tz = get_localzone()
     if uptime:
         start = datetime.time(*map(int, str(uptime.start_time).split(':')))
@@ -798,7 +835,7 @@ def register():
         message = "Click on the following link to activate your membership: " + str(request.url_root) + "activate/" + str(token)
         # try:
         send_mail(subject="PIPOL KONEK Membership Activation", recipient=regForm.email.data, message=message)
-        newUser = RegisterUser(username=regForm.email.data,value=regForm.password1.data,full_name=regForm.full_name.data,address=regForm.address.data,phone_no=regForm.phone_no.data,birthday=bday,gender=regForm.gender.data,id_type=regForm.govt_id_type.data,id_value=regForm.govt_id_value.data,status=0,token=token,registration_date=str(datetime.datetime.now()),validated=0)
+        newUser = RegisterUser(username=regForm.email.data,password=regForm.password1.data,fname=regForm.fname.data,lname=regForm.lname.data, mname=regForm.mname.data, ename=regForm.ename.data, address=regForm.address.data,phone_no=regForm.phone_no.data,birthdate=bday,gender=regForm.gender.data,id_type=regForm.govt_id_type.data,id_value=regForm.govt_id_value.data,status=0,token=token,registration_date=str(datetime.datetime.now()),validated=0)
         db.session.add(newUser)
         if session.get('token'):
             srv = Client(server=pyradServer, secret=b"ap0ll0",
@@ -806,12 +843,15 @@ def register():
             trans = Transaction.query.filter_by(token=session['token']).first()
             trans.uname = trans.mac
             trans.stage = 'pending_confirmation'
+            #trans.package = 'Email Validation'
             trans.date_modified = str(datetime.datetime.now())
             db.session.commit()
             acct_req = srv.CreateAcctPacket(User_Name=trans.mac)
             acct_req["NAS-Identifier"] = trans.gw_id
             acct_req["Framed-IP-Address"] = trans.ip
             acct_req["Acct-Session-Id"] = trans.mac
+            acct_req["Login-LAT-Service"] = trans.package
+            acct_req["Connect-Info"] = trans.device
             acct_req["Acct-Status-Type"] = "Start"
             try:
                 reply = srv.SendPacket(acct_req)
@@ -861,12 +901,15 @@ def sendPasswordResetLink():
                 trans = Transaction.query.filter_by(token=session['token']).first()
                 trans.uname = trans.mac
                 trans.stage = 'reset_password'
+                #trans.package = 'Password Reset'
                 trans.date_modified = str(datetime.datetime.now())
                 db.session.commit()
                 acct_req = srv.CreateAcctPacket(User_Name=trans.mac)
                 acct_req["NAS-Identifier"] = trans.gw_id
                 acct_req["Framed-IP-Address"] = trans.ip
                 acct_req["Acct-Session-Id"] = trans.mac
+                acct_req["Login-LAT-Service"] = trans.package
+                acct_req["Connect-Info"] = trans.device
                 acct_req["Acct-Status-Type"] = "Start"
                 try:
                     reply = srv.SendPacket(acct_req)
@@ -955,6 +998,8 @@ def cert():
         acct_req["NAS-Identifier"] = trans.gw_id
         acct_req["Framed-IP-Address"] = trans.ip
         acct_req["Acct-Session-Id"] = trans.mac
+        acct_req["Login-LAT-Service"] = trans.package
+        acct_req["Connect-Info"] = trans.device
         acct_req["Acct-Status-Type"] = "Start"
         try:
             reply = srv.SendPacket(acct_req)
@@ -1201,6 +1246,8 @@ class UserView(BaseView):
             'validators' : [validators.InputRequired()]
         },
         'password': {
+            # 'label': 'Reset Password',
+            # 'description': 'Leave this field blank to keep current password.'
             'validators' : [validators.InputRequired()]
         },
         'first_name': {
@@ -1221,17 +1268,23 @@ class UserView(BaseView):
     }
 
     def on_model_change(self, form, model, is_created):
-        if form.mpop.data == None or form.mpop.data == '':
-            if not str(form.role.data) == 'Tenant':
-                raise NotImplementedError('Please assign the MPOP ID for Manager/User.')
-        if form.mpop.data and str(form.role.data) == 'Tenant':
-            raise NotImplementedError('Please leave the MPOP ID blank for Tenant users.')
+        if str(form.role.data) == 'Tenant':
+            if not str(form.mpop.data) == 'DEFAULT':
+                raise NotImplementedError("Please assign the 'DEFAULT' MPOP ID for Tenant users.")
+        if str(form.mpop.data) == 'DEFAULT' and not str(form.role.data) == 'Tenant':
+            raise NotImplementedError("The 'DEFAULT' MPOP ID can only be assigned to Tenant users.")
+        # if form.password.data:
+        #     model.password = generate_password_hash(form.password.data)
+        # else:
+        #     model.password = model.password
         model.password = generate_password_hash(form.password.data)
         model.first_name = form.first_name.data.title()
         model.last_name = form.last_name.data.title()
         if is_created:
             model.created_by = current_user
             model.created_on = str(datetime.datetime.now())
+            # if not form.password.data:
+            #     raise NotImplementedError("Please add a password.")
 
     def on_model_delete(self,model):
         if model.id == current_user.id:
@@ -1305,6 +1358,10 @@ class GatewayView(BaseView):
         if is_created:
             model.created_by = current_user
             model.created_on = str(datetime.datetime.now())
+
+    def on_model_delete(self,model):
+        if model.gw_id == 'DEFAULT':
+            raise NotImplementedError('DEFAULT gateway cannot be deleted.')
 
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 0)
@@ -1506,7 +1563,8 @@ class UptimesView(BaseView):
         'end_time': _end_time_formatter,
         'status': _status_formatter,        
         'modified_by': _mod_by_formatter,
-        'created_by': _cre_by_formatter
+        'created_by': _cre_by_formatter,
+        'created_on': _cre_date_formatter
     }
 
     def on_model_change(self, form, model, is_created):
@@ -1560,7 +1618,7 @@ class UserUptimesView(ManagerUptimesView):
             model.status = 0
 
     def is_accessible(self):
-        return (current_user.is_authenticated and current_user.role_id == 1)
+        return (current_user.is_authenticated and current_user.role_id == 2)
 
 
 app.config['UPLOADED_IMAGES_DEST'] = imagedir = os.path.join(os.path.dirname(__file__), 'static/uploads')
@@ -1702,7 +1760,7 @@ class GroupAnnouncementsView(BaseView):
     form_args = {
         'group': {
             'label': 'Gateway Group',
-            'validators' : [validators.InputRequired()]
+            'validators' : [validators.InputRequired()],
         },
         'name': {
             'validators' : [validators.InputRequired()],
@@ -1723,7 +1781,7 @@ class GroupAnnouncementsView(BaseView):
         model.modified_by = current_user
         if is_created:
             model.created_by = current_user
-            model.modified_on = str(datetime.datetime.now())
+            model.created_on = str(datetime.datetime.now())
 
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 0)
@@ -1788,7 +1846,7 @@ class LogosView(BaseView):
             model.created_on = str(datetime.datetime.now())
 
     def is_accessible(self):
-        return current_user.is_authenticated
+        return (current_user.is_authenticated and current_user.role_id == 0)
 
 class ManagerLogosView(LogosView):
     def get_query(self):
@@ -1810,11 +1868,11 @@ class ManagerLogosView(LogosView):
     }
 
     def is_accessible(self):
-        return (current_user.is_authenticated and current_user.role_id == 2)
+        return (current_user.is_authenticated and current_user.role_id == 1)
 
 class UserLogosView(ManagerLogosView):
 
-    form_columns = ('gateway_id', 'name', 'path', 'status')
+    form_columns = ('gateway_id', 'name', 'path')
 
     def on_model_change(self, form, model, is_created):
         model.modified_by = current_user
@@ -1836,6 +1894,16 @@ def del_image(mapper, connection, target):
 
 class GatewayGroupsView(BaseView):
     column_list = ('name', 'gateways')
+
+    form_args = {
+        'gateways': {
+            'query_factory' : lambda:  Gateways.query.filter(Gateways.gw_id != 'DEFAULT'),
+            'validators' : [validators.InputRequired()]
+        },
+        'name' : {
+            'validators' : [validators.InputRequired()]
+        }
+    }
 
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 0)
@@ -1905,7 +1973,6 @@ app.config['FLASK_ADMIN_FLUID_LAYOUT'] = True
 
 # Add view
 admin.add_view(GatewayView(Gateways, db.session, name='Gateways'))
-admin.add_view(GatewayGroupsView(GatewayGroup,db.session, name='Gateway Groups'))
 admin.add_view(UserView(Admin_Users, db.session, name='Users'))
 admin.add_view(ManagerUserView(Admin_Users, db.session, name='Users', endpoint='users_mgr'))
 admin.add_view(DataLimitsView(Data_Limits, db.session, name="Data Limits"))
@@ -1920,6 +1987,7 @@ admin.add_view(UserLogosView(Logos, db.session, name="Logos", endpoint='logos_us
 admin.add_view(AnnouncementsView(Announcements, db.session))
 admin.add_view(ManagerAnnouncementsView(Announcements, db.session, name="Announcements", endpoint='announcements_mgr'))
 admin.add_view(UserAnnouncementsView(Announcements, db.session, name="Announcements", endpoint='announcements_usr'))
+admin.add_view(GatewayGroupsView(GatewayGroup,db.session, name='Gateway Groups'))
 admin.add_view(GroupAnnouncementsView(GroupAnnouncements, db.session, name="Group Announcements"))
 
 if __name__ == '__main__':

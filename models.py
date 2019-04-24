@@ -151,15 +151,13 @@ class Admin_Users(db.Model):
     last_name = db.Column(db.String)
     role_id = db.Column(db.Integer, db.ForeignKey('roles.id', ondelete='RESTRICT'), nullable=False)
     role = db.relationship("UserRoles", foreign_keys=[role_id])
-    mpop_id = db.Column(db.String, db.ForeignKey('gateways.gw_id', ondelete='RESTRICT'))
+    mpop_id = db.Column(db.String, db.ForeignKey('gateways.gw_id', ondelete='RESTRICT'), nullable=False)
     mpop = db.relationship("Gateways", foreign_keys=[mpop_id])
     created_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'))
-    created_by = db.relationship("Admin_Users", foreign_keys=[created_by_id])
+    created_by = db.relationship("Admin_Users", foreign_keys=[created_by_id], remote_side=id)
     created_on = db.Column(db.String)
     # gateways = db.relationship(
     #     "Gateways", backref="modified_by", lazy="dynamic", foreign_keys=[])
-    # limits = db.relationship(
-    #     "Data_Limits", backref="modified_by", lazy="dynamic")
     # uptimes = db.relationship(
     #     "Uptimes", backref="modified_by", lazy="dynamic")
     # announcements = db.relationship(
@@ -402,18 +400,21 @@ class Logos(db.Model):
 
 class RegisterUser(db.Model):
     """Model for the free radius registered users table"""
-    __tablename__ = 'radcheck'
+    __tablename__ = 'subscribers'
     __bind_key__ = 'radius'
 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String)
-    attribute = db.Column(db.String, default='Cleartext-Password')
-    op = db.Column(db.String, default=':=')
-    value = db.Column(db.String)
-    full_name = db.Column(db.String)
+    # attribute = db.Column(db.String, default='Cleartext-Password')
+    # op = db.Column(db.String, default=':=')
+    password = db.Column(db.String)
+    fname = db.Column(db.String)
+    lname = db.Column(db.String)
+    mname = db.Column(db.String)
+    ename = db.Column(db.String)
     address = db.Column(db.String)
     phone_no = db.Column(db.String)
-    birthday = db.Column(db.String)
+    birthdate = db.Column(db.Date)
     gender = db.Column(db.String(2))
     id_type = db.Column(db.String(2))
     id_value = db.Column(db.String)

@@ -132,8 +132,14 @@
           {{ form.csrf_token() }}
           <label for="form.email.name">Email</label>
           {{ render_field(form.email, placeholder='user@example.com') }}
-          <label for="name">Full Name</label>
-          {{ render_field(form.full_name, placeholder='Full Name') }}
+          <label for="fname">First Name</label>
+          {{ render_field(form.fname, placeholder='First Name') }}
+          <label for="mname">Middle Name</label>
+          {{ render_field(form.mname, placeholder='Middle Name') }}
+          <label for="lname">Last Name</label>
+          {{ render_field(form.lname, placeholder='Last Name') }}
+          <label for="ename">Name Extension</label>
+          {{ render_field(form.ename, placeholder='Name Extension (ex. Jr)') }}
           <label for="address">Address</label>
           {{ render_field(form.address, placeholder='Address') }}
           <label for="phone">Phone Number</label>
@@ -168,7 +174,7 @@
       </form>
       <br /><br /><br />
       <div class="copyright-footer">
-        <p>Apollo Technologies, Inc. &copy; 2019</p>
+        <p>Apollo Technologies, Inc. &copy; 2019 | <a href="https://rt.apolloglobal.net" target="_blank">Contact Us</a></p>
       </div>
     </div>
     <br /><br />
