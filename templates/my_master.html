@@ -42,7 +42,8 @@
                         <i class="fa fa-user glyphicon glyphicon-user"></i> {{ current_user.username }} <span class="caret"></span>
                     </a>
                     <ul class="dropdown-menu dropdown-user">
-                        <li><a href="{{ url_for('admin.logout_view') }}"><i class="fa fa-sign-out glyphicon glyphicon-sign-out"></i> Log out</a></li>
+                        <li><a href="{{ url_for('admin.profile') }}"><i class="fa fa-edit glyphicon glyphicon-edit"></i> Profile</a></li>
+                        <li><a href="{{ url_for('admin.logout_view') }}"><i class="fa fa-sign-out glyphicon glyphicon-log-out"></i> Log out</a></li>
                     </ul>
                 </li>
                 </ul>

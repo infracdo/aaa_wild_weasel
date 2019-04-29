@@ -381,6 +381,7 @@ input {
 .modal, .modal-dialog, .modal-content {
   background-color: transparent;
   border: none;
+  min-width: 70vw;
 }
 
 .modal.fade .modal-dialog {
@@ -401,7 +402,7 @@ input {
 }
 
 .loading {
-  font-size: 3.4vh;
+  font-size: 3.3vh;
   color:white; 
   font-weight:600; 
   letter-spacing:0.2em;

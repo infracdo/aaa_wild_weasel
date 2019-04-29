@@ -15,7 +15,7 @@ from pyrad.packet import Packet
 from models import db, Transaction, Devices, Registered_Users, CertifiedDevices, Admin_Users, Gateways, Data_Limits, Uptimes, Announcements, Logos, RegisterUser, UserRoles, GatewayGroup, GatewayGroups, GroupAnnouncements
 from googletrans import Translator
 import pyrad.packet
-import datetime, socket, uuid, os, re
+import datetime, socket, uuid, os, re, hashlib
 from flask_uploads import UploadSet, IMAGES, configure_uploads, patch_request_class
 from jinja2 import Markup
 from tzlocal import get_localzone
@@ -84,6 +84,11 @@ def hello_world():
 def ping():
     return "Pong"
 
+def encryptPass(userInput):
+    salt = 'ap0ll0'
+    db_password = userInput + salt
+    return hashlib.md5(db_password.encode()).hexdigest()
+
 # <------ GET DATA LIMIT SETTINGS | @getLimit ------>
 def getLimit(gw_id, access_type, limit_type, default):
     _default = Data_Limits.query.filter_by(
@@ -112,7 +117,7 @@ def login():
         srv = Client(server=pyradServer, secret=b"ap0ll0",
                      dict=Dictionary("dictionary"))
         uname = request.form['uname']
-        pword = request.form['pword']
+        pword = encryptPass(request.form['pword'])
         package = request.form['package']
         token = session['token']
 
@@ -166,8 +171,10 @@ def login():
                 reply = srv.SendPacket(acct_req)
             except pyrad.client.Timeout:
                 message = "RADIUS server does not reply"
+                return render_template("logout.html", message=message, hideReturnToHome=True)
             except socket.error as error:
                 message = "Network error: " + error[1]
+                return render_template("logout.html", message=message, hideReturnToHome=True)
             return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
         else:
             # <------ LOGIN, POST: REGISTERED ACCESS | @loginReg ------>
@@ -201,10 +208,15 @@ def login():
                 reply = False
                 try:
                     reply = srv.SendPacket(req)
-                except pyrad.client.Timeout:
+                except (pyrad.client.Timeout, Timeout):
                     message = "RADIUS server does not reply"
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
                 except socket.error as error:
                     message = "Network error: " + error[1]
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
+                except:
+                    message = "Server error"
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
                 if reply.code == pyrad.packet.AccessAccept:
                     # if credentials accepted
                     # if user already exists in db
@@ -248,8 +260,10 @@ def login():
                         reply = srv.SendPacket(acct_req)
                     except pyrad.client.Timeout:
                         message = "RADIUS server does not reply"
+                        return render_template("logout.html", message=message, hideReturnToHome=True)
                     except socket.error as error:
                         message = "Network error: " + error[1]
+                        return render_template("logout.html", message=message, hideReturnToHome=True)
                     return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
                 else:
                     # if wrong credentials
@@ -463,6 +477,14 @@ def auth():
         trans.stage = "logout"
         trans.date_modified = str(datetime.datetime.now())
         db.session.commit()
+        acct_req["Acct-Input-Octets"] = incoming_n
+        acct_req["Acct-Output-Octets"] = outgoing_n
+        acct_req["Acct-Status-Type"] = "Stop"
+        acct_req["Acct-Terminate-Cause"] = "Host-Request"
+        try:
+            reply = srv.SendPacket(acct_req)
+        except:
+            pass
         return "Auth: 0"
 
     if trans.stage == "logout" or trans.stage == "end_email_validation" or trans.stage == "end_reset_password":
@@ -476,6 +498,14 @@ def auth():
             trans.stage = "end_email_validation"
             trans.date_modified = str(datetime.datetime.now())
             db.session.commit()
+            acct_req["Acct-Input-Octets"] = incoming_n
+            acct_req["Acct-Output-Octets"] = outgoing_n
+            acct_req["Acct-Status-Type"] = "Stop"
+            acct_req["Acct-Terminate-Cause"] = "Host-Request"
+            try:
+                reply = srv.SendPacket(acct_req)
+            except:
+                pass
             return "Auth: 0"
         # limit to 10 minutes
         last_modified = datetime.datetime.strptime(trans.date_modified, '%Y-%m-%d %H:%M:%S.%f')
@@ -489,6 +519,14 @@ def auth():
             trans.stage = "end_email_validation"
             trans.date_modified = str(datetime.datetime.now())
             db.session.commit()
+            acct_req["Acct-Input-Octets"] = incoming_n
+            acct_req["Acct-Output-Octets"] = outgoing_n
+            acct_req["Acct-Status-Type"] = "Stop"
+            acct_req["Acct-Terminate-Cause"] = "Host-Request"
+            try:
+                reply = srv.SendPacket(acct_req)
+            except:
+                pass
             return "Auth: 0"
         return "Auth: 1"
 
@@ -500,6 +538,14 @@ def auth():
             trans.stage = "end_reset_password"
             trans.date_modified = str(datetime.datetime.now())
             db.session.commit()
+            acct_req["Acct-Input-Octets"] = incoming_n
+            acct_req["Acct-Output-Octets"] = outgoing_n
+            acct_req["Acct-Status-Type"] = "Stop"
+            acct_req["Acct-Terminate-Cause"] = "Host-Request"
+            try:
+                reply = srv.SendPacket(acct_req)
+            except:
+                pass
             return "Auth: 0"
         # limit to 10 minutes
         last_modified = datetime.datetime.strptime(trans.date_modified, '%Y-%m-%d %H:%M:%S.%f')
@@ -513,6 +559,14 @@ def auth():
             trans.stage = "end_reset_password"
             trans.date_modified = str(datetime.datetime.now())
             db.session.commit()
+            acct_req["Acct-Input-Octets"] = incoming_n
+            acct_req["Acct-Output-Octets"] = outgoing_n
+            acct_req["Acct-Status-Type"] = "Stop"
+            acct_req["Acct-Terminate-Cause"] = "Host-Request"
+            try:
+                reply = srv.SendPacket(acct_req)
+            except:
+                pass
             return "Auth: 0"
         return "Auth: 1"
 
@@ -535,8 +589,10 @@ def auth():
                 reply = srv.SendPacket(acct_req)
             except pyrad.client.Timeout:
                 message = "RADIUS server does not reply"
+                return render_template("logout.html", message=message, hideReturnToHome=True)
             except socket.error as error:
                 message = "Network error: " + error[1]
+                return render_template("logout.html", message=message, hideReturnToHome=True)
             if last_active_date == datetime.date.today():
                 user.registered_data = (user.registered_data + (new_record - user.last_record))
             else:
@@ -556,8 +612,10 @@ def auth():
                 reply = srv.SendPacket(acct_req)
             except pyrad.client.Timeout:
                 message = "RADIUS server does not reply"
+                return render_template("logout.html", message=message, hideReturnToHome=True)
             except socket.error as error:
                 message = "Network error: " + error[1]
+                return render_template("logout.html", message=message, hideReturnToHome=True)
             if last_active_date == datetime.date.today():
                 user.registered_data = (user.registered_data + (new_record - user.last_record))
             else:
@@ -590,8 +648,10 @@ def auth():
                     reply = srv.SendPacket(acct_req)
                 except pyrad.client.Timeout:
                     message = "RADIUS server does not reply"
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
                 except socket.error as error:
                     message = "Network error: " + error[1]
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
                 if last_active_date == datetime.date.today():
                     device.free_data = (device.free_data + (new_record - device.last_record))
                 else:
@@ -611,8 +671,10 @@ def auth():
                     reply = srv.SendPacket(acct_req)
                 except pyrad.client.Timeout:
                     message = "RADIUS server does not reply"
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
                 except socket.error as error:
                     message = "Network error: " + error[1]
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
                 if last_active_date == datetime.date.today():
                     device.free_data = (device.free_data + (new_record - device.last_record))
                 else:
@@ -644,8 +706,10 @@ def auth():
                     reply = srv.SendPacket(acct_req)
                 except pyrad.client.Timeout:
                     message = "RADIUS server does not reply"
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
                 except socket.error as error:
                     message = "Network error: " + error[1]
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
                 if last_active_date == datetime.date.today():
                     device.cert_data = (device.cert_data + (new_record - device.last_record))
                 else:
@@ -665,8 +729,10 @@ def auth():
                     reply = srv.SendPacket(acct_req)
                 except pyrad.client.Timeout:
                     message = "RADIUS server does not reply"
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
                 except socket.error as error:
                     message = "Network error: " + error[1]
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
                 if last_active_date == datetime.date.today():
                     device.cert_data = (device.cert_data + (new_record - device.last_record))
                 else:
@@ -835,7 +901,7 @@ def register():
         message = "Click on the following link to activate your membership: " + str(request.url_root) + "activate/" + str(token)
         # try:
         send_mail(subject="PIPOL KONEK Membership Activation", recipient=regForm.email.data, message=message)
-        newUser = RegisterUser(username=regForm.email.data,password=regForm.password1.data,fname=regForm.fname.data,lname=regForm.lname.data, mname=regForm.mname.data, ename=regForm.ename.data, address=regForm.address.data,phone_no=regForm.phone_no.data,birthdate=bday,gender=regForm.gender.data,id_type=regForm.govt_id_type.data,id_value=regForm.govt_id_value.data,status=0,token=token,registration_date=str(datetime.datetime.now()),validated=0)
+        newUser = RegisterUser(username=regForm.email.data,password=encryptPass(regForm.password1.data),fname=regForm.fname.data,lname=regForm.lname.data, mname=regForm.mname.data, ename=regForm.ename.data, address=regForm.address.data,phone_no=regForm.phone_no.data,birthdate=bday,gender=regForm.gender.data,id_type=regForm.govt_id_type.data,id_value=regForm.govt_id_value.data,status=0,token=token,registration_date=str(datetime.datetime.now()),validated=0)
         db.session.add(newUser)
         if session.get('token'):
             srv = Client(server=pyradServer, secret=b"ap0ll0",
@@ -843,7 +909,7 @@ def register():
             trans = Transaction.query.filter_by(token=session['token']).first()
             trans.uname = trans.mac
             trans.stage = 'pending_confirmation'
-            #trans.package = 'Email Validation'
+            trans.package = 'Email Validation'
             trans.date_modified = str(datetime.datetime.now())
             db.session.commit()
             acct_req = srv.CreateAcctPacket(User_Name=trans.mac)
@@ -857,8 +923,10 @@ def register():
                 reply = srv.SendPacket(acct_req)
             except pyrad.client.Timeout:
                 message = "RADIUS server does not reply"
+                return render_template("logout.html", message=message, hideReturnToHome=True)
             except socket.error as error:
                 message = "Network error: " + error[1]
+                return render_template("logout.html", message=message, hideReturnToHome=True)
             return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
         else:
             return render_template('logout.html', message='There was an error in creating your registration. Please try again later.', returnLink=url_for('access'))
@@ -901,7 +969,7 @@ def sendPasswordResetLink():
                 trans = Transaction.query.filter_by(token=session['token']).first()
                 trans.uname = trans.mac
                 trans.stage = 'reset_password'
-                #trans.package = 'Password Reset'
+                trans.package = 'Password Reset'
                 trans.date_modified = str(datetime.datetime.now())
                 db.session.commit()
                 acct_req = srv.CreateAcctPacket(User_Name=trans.mac)
@@ -915,8 +983,10 @@ def sendPasswordResetLink():
                     reply = srv.SendPacket(acct_req)
                 except pyrad.client.Timeout:
                     message = "RADIUS server does not reply"
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
                 except socket.error as error:
                     message = "Network error: " + error[1]
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
                 return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
             else:
                 return render_template("email-reset.html", message=("Please enter an email address that is registered with Pipol Konek. " + Markup('<a href="%s">Register here.</a>' % url_for('register'))))
@@ -977,7 +1047,7 @@ def cert():
                     db.session.commit()
             else:
                 if device.month_data >= month_limit:
-                    if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
+                    if last_active_date.month == datetime.dFadminindexate.today().month and last_active_date.year == datetime.date.today().year:
                         return render_template('logout.html', message="You have exceeded your data usage limit for this month.", returnLink=url_for('access'))
                     else:
                         device.month_data = 0
@@ -1005,8 +1075,10 @@ def cert():
             reply = srv.SendPacket(acct_req)
         except pyrad.client.Timeout:
             message = "RADIUS server does not reply"
+            return render_template("logout.html", message=message, hideReturnToHome=True)
         except socket.error as error:
             message = "Network error: " + error[1]
+            return render_template("logout.html", message=message, hideReturnToHome=True)
         return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
     else:
         return render_template('logout.html', message="Your browser/device certificate does not exist or is invalid. Please contact DICT to apply for a valid certificate.", returnLink=url_for('access'))
@@ -1236,6 +1308,7 @@ class BaseView(ModelView):
         )
 
 class UserView(BaseView):
+    edit_template = 'admin/edit_user.html'
     column_list = ('first_name', 'last_name', 'username', 'role', 'mpop', 'created_by', 'created_on')
     form_columns = ('username', 'first_name', 'last_name', 'password', 'role', 'mpop')
     column_labels = {
@@ -1262,6 +1335,7 @@ class UserView(BaseView):
         password=PasswordField, 
     )
 
+    form_edit_rules = ('username', 'first_name', 'last_name', 'role', 'mpop')
     column_formatters = {
         'created_on': _cre_date_formatter,
         'created_by': _cre_by_formatter
@@ -1292,6 +1366,10 @@ class UserView(BaseView):
 
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 0)
+
+    @expose('/reset/<id>', methods=('GET', 'POST'))
+    def reset_password(self,id):
+        return redirect('/admin/admin_users/')
 
 class ManagerUserView(UserView):
     def get_query(self):
@@ -1909,6 +1987,19 @@ class GatewayGroupsView(BaseView):
         return (current_user.is_authenticated and current_user.role_id == 0)
 
 
+class AdminResetPasswordForm(form.Form):
+
+    def matchPasswords(self,field):
+        if not self.password1.data == self.password2.data:
+            raise validators.ValidationError('The passwords you entered do not match.')
+
+    password1 = fields.PasswordField(validators=[validators.InputRequired(), validators.Length(min=5, message='Password must be at least 5 characters long.'), matchPasswords], render_kw={"class": "form-control"})
+    password2 = fields.PasswordField(validators=[validators.InputRequired()], render_kw={"class": "form-control"})
+
+    # def validate_login(self, field):
+    #     if Admin_Users.query.filter_by(username=self.username.data).first().count() > 0:
+    #         raise validators.ValidationError('Duplicate username')
+
 # Create customized index view class that handles login & registration
 
 class AdminIndexView(admin.AdminIndexView):
@@ -1936,26 +2027,39 @@ class AdminIndexView(admin.AdminIndexView):
         self._template_args['link'] = link
         return self.render('admin_login.html', form=form)
 
-    @expose('/register/', methods=('GET', 'POST'))
-    def register_view(self):
-        form = RegistrationForm(request.form)
-        if helpers.validate_form_on_submit(form):
-            user = Admin_Users()
+    # @expose('/register/', methods=('GET', 'POST'))
+    # def register_view(self):
+    #     form = RegistrationForm(request.form)
+    #     if helpers.validate_form_on_submit(form):
+    #         user = Admin_Users()
 
-            form.populate_obj(user)
-            # we hash the users password to avoid saving it as plaintext in the db,
-            # remove to use plain text:
-            user.password = generate_password_hash(form.password.data)
+    #         form.populate_obj(user)
+    #         # we hash the users password to avoid saving it as plaintext in the db,
+    #         # remove to use plain text:
+    #         user.password = generate_password_hash(form.password.data)
 
-            db.session.add(user)
-            db.session.commit()
+    #         db.session.add(user)
+    #         db.session.commit()
 
-            login_user(user)
-            return redirect(url_for('.index'))
-        link = '<p>Already have an account? <a href="' + url_for('.login_view') + '">Click here to log in.</a></p>'
-        self._template_args['form'] = form
-        self._template_args['link'] = link
-        return super(AdminIndexView, self).index()
+    #         login_user(user)
+    #         return redirect(url_for('.index'))
+    #     link = '<p>Already have an account? <a href="' + url_for('.login_view') + '">Click here to log in.</a></p>'
+    #     self._template_args['form'] = form
+    #     self._template_args['link'] = link
+    #     return super(AdminIndexView, self).index()
+
+    @expose('/profile/', methods=('GET', 'POST'))
+    def profile(self):
+        admform = AdminResetPasswordForm(request.form)
+        if helpers.validate_form_on_submit(admform):
+            user = Admin_Users.query.filter_by(id=current_user.id).first()
+            if user:
+                user.password = generate_password_hash(admform.password1.data)
+                db.session.commit()
+                logout_user()
+                flash('Password changed. Please log in again.')
+                return redirect(url_for('.index'))
+        return self.render('admin_user_profile.html', form=admform)
 
     @expose('/logout/')
     def logout_view(self):

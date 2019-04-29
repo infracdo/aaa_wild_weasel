@@ -9,9 +9,7 @@
 <div id="wrapper">
     <div class="container{%if config.get('FLASK_ADMIN_FLUID_LAYOUT', False) %}-fluid{% endif %}">
 
-      {% block messages %}
-      {{ layout.messages() }}
-      {% endblock %}
+      
 
       {# store the jinja2 context for form_rules rendering logic #}
       {% set render_ctx = h.resolve_ctx() %}
@@ -26,6 +24,9 @@
                   </div>
                   <div class="panel-body">
       <form role="form" method="post" action="/admin/sign-in/">
+        {% block messages %}
+        {{ layout.messages() }}
+        {% endblock %}
         {% for field_name, field_errors in form.errors|dictsort if field_errors %}
           {% for error in field_errors %}
             <div class="alert alert-danger alert-dismissible">
