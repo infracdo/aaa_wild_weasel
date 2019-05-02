@@ -8,7 +8,7 @@
     {%- if admin_view.create_modal -%}
       {{ lib.add_modal_button(url=get_url('.create_view', url=return_url, modal=True), title=_gettext('Add New Record'), content=_gettext('Add')) }}
     {% else %}
-      <a href="{{ get_url('.create_view', url=return_url) }}" title="{{ _gettext('Add New Record') }}"><button class="btn" style="margin-left: 20px; margin-top:-6px;">{{ _gettext('Add New') }}</button></a>
+      <a href="{{ get_url('.create_view', url=return_url) }}" title="{{ _gettext('Add New Record') }}"><button class="btn btn-default" style="margin-left: 20px; margin-top:-6px;">{{ _gettext('Add New') }}</button></a>
     {%- endif -%}       
       {% endif %}
         

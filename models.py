@@ -155,7 +155,10 @@ class Admin_Users(db.Model):
     mpop = db.relationship("Gateways", foreign_keys=[mpop_id])
     created_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'))
     created_by = db.relationship("Admin_Users", foreign_keys=[created_by_id], remote_side=id)
-    created_on = db.Column(db.String)
+    created_on = db.Column(db.String, default=datetime.datetime.now)
+    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'))
+    modified_by = db.relationship("Admin_Users", foreign_keys=[modified_by_id], remote_side=id)
+    modified_on = db.Column(db.String, default=datetime.datetime.now, onupdate=datetime.datetime.now)
     # gateways = db.relationship(
     #     "Gateways", backref="modified_by", lazy="dynamic", foreign_keys=[])
     # uptimes = db.relationship(
@@ -209,6 +212,13 @@ class GatewayGroup(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String, unique=True)
+    status = db.Column(db.SmallInteger)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
+    created_by = db.relationship("Admin_Users", foreign_keys=[created_by_id])
+    created_on = db.Column(db.String, default=datetime.datetime.now)
+    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
+    modified_by = db.relationship("Admin_Users", foreign_keys=[modified_by_id])
+    modified_on = db.Column(db.String, default=datetime.datetime.now, onupdate=datetime.datetime.now)
 
     def __str__(self):
         return self.name
@@ -255,7 +265,7 @@ class GatewayGroups(db.Model):
     gateway = db.relationship("Gateways", foreign_keys=[gw_id])
     group_id = db.Column(db.Integer(), db.ForeignKey('gateway_group.id', ondelete='RESTRICT'), nullable=False)
     group = db.relationship("GatewayGroup", foreign_keys=[group_id])
-    
+
 class Data_Limits(db.Model):
     """Model for the data limits table"""
     __tablename__ = 'data_limits'
@@ -317,7 +327,7 @@ class Announcements(db.Model):
         db.String, default=datetime.datetime.now, onupdate=datetime.datetime.now)
     created_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
     created_by = db.relationship("Admin_Users", foreign_keys=[created_by_id])
-    created_on = db.Column(db.String)
+    created_on = db.Column(db.String,default=datetime.datetime.now)
 
     def __unicode__(self):
         return self.name

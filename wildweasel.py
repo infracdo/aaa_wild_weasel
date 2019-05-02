@@ -21,6 +21,7 @@ from jinja2 import Markup
 from tzlocal import get_localzone
 from send_mail import send_mail
 from math import ceil
+import warnings
 
 app = Flask(__name__)
 csrf = CSRFProtect(app)
@@ -74,6 +75,8 @@ db.init_app(app)
 #     # make the session last indefinitely until it is cleared
 #     session.permanent = True
 
+with warnings.catch_warnings():
+    warnings.filterwarnings('ignore', 'Fields missing from ruleset', UserWarning)
 
 @app.route('/')
 def hello_world():
@@ -105,7 +108,6 @@ def time_in_range(start, end, x):
         return start <= x <= end
     else:
         return start <= x or x <= end
-
 
 # <------ LOGIN ROUTE | @login ------>
 
@@ -1047,7 +1049,7 @@ def cert():
                     db.session.commit()
             else:
                 if device.month_data >= month_limit:
-                    if last_active_date.month == datetime.dFadminindexate.today().month and last_active_date.year == datetime.date.today().year:
+                    if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
                         return render_template('logout.html', message="You have exceeded your data usage limit for this month.", returnLink=url_for('access'))
                     else:
                         device.month_data = 0
@@ -1169,20 +1171,21 @@ def _status_formatter(view, context, model, name):
 
 def _mod_by_formatter(view, context, model, name):
     if model.modified_by:
-        role = UserRoles.query.filter_by(id=model.modified_by.role_id).first().role
-        return (model.modified_by.first_name + " " + model.modified_by.last_name + " (" + role + ")").title()
+        #role = UserRoles.query.filter_by(id=model.modified_by.role_id).first().role
+        return (model.modified_by.first_name + " " + model.modified_by.last_name).title()
     return ""
 
 def _cre_by_formatter(view, context, model, name):
     if model.created_by:
-        role = UserRoles.query.filter_by(id=model.created_by.role_id).first().role
-        return (model.created_by.first_name + " " + model.created_by.last_name + " (" + role + ")").title()
+        #role = UserRoles.query.filter_by(id=model.created_by.role_id).first().role
+        return (model.created_by.first_name + " " + model.created_by.last_name).title()
     return ""
 
 class BaseView(ModelView):
     create_template = 'admin/create.html'
     edit_template = 'admin/edit.html'
     list_template = 'admin/list.html'
+    action_disallowed_list = ['delete']
 
     @expose('/')
     def index_view(self):
@@ -1309,7 +1312,7 @@ class BaseView(ModelView):
 
 class UserView(BaseView):
     edit_template = 'admin/edit_user.html'
-    column_list = ('first_name', 'last_name', 'username', 'role', 'mpop', 'created_by', 'created_on')
+    column_list = ('first_name', 'last_name', 'username', 'role', 'mpop', 'created_by', 'created_on', 'modified_by', 'modified_on')
     form_columns = ('username', 'first_name', 'last_name', 'password', 'role', 'mpop')
     column_labels = {
         'mpop': 'Gateway/MPOP ID'
@@ -1338,7 +1341,9 @@ class UserView(BaseView):
     form_edit_rules = ('username', 'first_name', 'last_name', 'role', 'mpop')
     column_formatters = {
         'created_on': _cre_date_formatter,
-        'created_by': _cre_by_formatter
+        'created_by': _cre_by_formatter,
+        'modified_on': _mod_date_formatter,
+        'modified_by': _mod_by_formatter
     }
 
     def on_model_change(self, form, model, is_created):
@@ -1354,6 +1359,7 @@ class UserView(BaseView):
         model.password = generate_password_hash(form.password.data)
         model.first_name = form.first_name.data.title()
         model.last_name = form.last_name.data.title()
+        model.modified_by = current_user
         if is_created:
             model.created_by = current_user
             model.created_on = str(datetime.datetime.now())
@@ -1369,9 +1375,33 @@ class UserView(BaseView):
 
     @expose('/reset/<id>', methods=('GET', 'POST'))
     def reset_password(self,id):
+        if request.method == 'POST':
+            password1 = request.form['password1']
+            password2 = request.form['password2']
+            if not password1 == password2:
+                flash('The passwords you entered do not match.')
+                return redirect('/admin/admin_users/edit/?id=' + id)
+            if len(password1) < 5:
+                flash('Password must be at least 5 characters.')
+                return redirect('/admin/admin_users/edit/?id=' + id)
+            else:
+                user = Admin_Users.query.filter_by(id=id).first()
+                if user:
+                    user.password = generate_password_hash(password1)
+                    user.modified_by_id = current_user.id
+                    db.session.commit()
+                    if user.id == current_user.id:
+                        logout_user()
+                        flash('Password changed. Please log in again.')
+                    else:
+                        flash('Password changed.')
+                else:
+                    flash('Database error. Please contact your administrator.')
+                return redirect('/admin/admin_users/')
         return redirect('/admin/admin_users/')
 
 class ManagerUserView(UserView):
+    edit_template = 'admin/edit_user_mgr.html'
     def get_query(self):
       return self.session.query(self.model).filter(self.model.mpop_id==current_user.mpop_id)
 
@@ -1402,6 +1432,33 @@ class ManagerUserView(UserView):
 
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 1)
+
+    @expose('/reset/<id>', methods=('GET', 'POST'))
+    def reset_password(self,id):
+        if request.method == 'POST':
+            password1 = request.form['password1']
+            password2 = request.form['password2']
+            if not password1 == password2:
+                flash('The passwords you entered do not match.')
+                return redirect('/admin/users_mgr/edit/?id=' + id)
+            if len(password1) < 5:
+                flash('Password must be at least 5 characters.')
+                return redirect('/admin/users_mgr/edit/?id=' + id)
+            else:
+                user = Admin_Users.query.filter_by(id=id).first()
+                if user:
+                    user.password = generate_password_hash(password1)
+                    user.modified_by_id = current_user.id
+                    db.session.commit()
+                    if user.id == current_user.id:
+                        logout_user()
+                        flash('Password changed. Please log in again.')
+                    else:
+                        flash('Password changed.')
+                else:
+                    flash('Database error. Please contact your administrator.')
+                return redirect('/admin/users_mgr/')
+        return redirect('/admin/users_mgr/')
 
 class GatewayView(BaseView):
     edit_modal = True
@@ -1448,7 +1505,7 @@ class GatewayView(BaseView):
 class DataLimitsView(BaseView):
     column_list = ('gateway_id', 'access_type', 'limit_type', 'value', 'status', 'created_by', 'created_on', 'modified_by', 'modified_on')
     column_labels = {
-        'gateway_id': 'Region or Municipality',
+        'gateway_id': 'Gateway / MPOP ID',
         'value': 'Data Usage Limit (Bytes)'
     }
     form_columns = ('gateway_id', 'access_type', 'limit_type', 'value', 'status')
@@ -1590,7 +1647,7 @@ hours = [('00:00:00','12:00 AM'),('01:00:00','01:00 AM'),('02:00:00','02:00 AM')
             ('12:00:00','12:00 PM'),('13:00:00','01:00 PM'),('14:00:00','02:00 PM'),('15:00:00','03:00 PM'),('16:00:00','04:00 PM'),('17:00:00','05:00 PM'),
             ('18:00:00','06:00 PM'),('19:00:00', '07:00 PM'),('20:00:00','08:00 PM'),('21:00:00','09:00 PM'),('22:00:00','10:00 PM'),('23:00:00','11:00 PM')]
 
-class UptimesView(BaseView):      
+class UptimesView(BaseView):    
     column_list = ('gateway_id', 'start_time', 'end_time', 'status', 'created_by', 'created_on', 'modified_by', 'modified_on')
     column_labels = {
         'gateway_id': 'Gateway/MPOP ID',
@@ -1762,7 +1819,7 @@ class AnnouncementsView(BaseView):
         model.modified_by = current_user
         if is_created:
             model.created_by = current_user
-            model.modified_on = str(datetime.datetime.now())
+            model.created_on = str(datetime.datetime.now())
 
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 0)
@@ -1971,7 +2028,8 @@ def del_image(mapper, connection, target):
             pass
 
 class GatewayGroupsView(BaseView):
-    column_list = ('name', 'gateways')
+    column_list = ('name', 'gateways', 'created_by', 'created_on', 'modified_by', 'modified_on')
+    form_columns = ('name', 'gateways')
 
     form_args = {
         'gateways': {
@@ -1982,6 +2040,19 @@ class GatewayGroupsView(BaseView):
             'validators' : [validators.InputRequired()]
         }
     }
+
+    column_formatters = {
+        'modified_on': _mod_date_formatter,
+        'modified_by': _mod_by_formatter,
+        'created_by': _cre_by_formatter,
+        'created_on': _cre_date_formatter
+    }
+
+    def on_model_change(self, form, model, is_created):
+        model.modified_by = current_user
+        if is_created:
+            model.created_by = current_user
+            model.created_on = str(datetime.datetime.now())
 
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 0)
@@ -2055,6 +2126,7 @@ class AdminIndexView(admin.AdminIndexView):
             user = Admin_Users.query.filter_by(id=current_user.id).first()
             if user:
                 user.password = generate_password_hash(admform.password1.data)
+                user.modified_by_id = current_user.id
                 db.session.commit()
                 logout_user()
                 flash('Password changed. Please log in again.')

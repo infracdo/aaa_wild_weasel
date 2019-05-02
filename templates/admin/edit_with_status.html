@@ -1,0 +1,17 @@
+{% extends 'admin/model/edit.html' %}
+
+{% block body %}
+    <h2 id="brand" style="display:inline">Edit {{ admin_view.name[:-1] }}</h2>
+    <p  class="status-badge is-status-active"><span class="glyphicon glyphicon-ok-circle" aria-hidden="true"></span>&nbsp;<b>ACTIVE</b></p>
+    <a href="#" title="Deactivate">
+        <button class="btn btn-danger btn-sm" style="margin-left: 10px; margin-top:-6px;">DEACTIVATE</button>
+    </a>
+    <div class="clearfix"></div>
+    <hr>
+  {% call lib.form_tag(form) %}
+      {{ lib.render_form_fields(form, form_opts=form_opts) }}
+      <div class="form-buttons">
+        {{ lib.render_form_buttons(return_url) }}
+      </div>
+  {% endcall %}
+{% endblock %}

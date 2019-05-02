@@ -858,3 +858,31 @@ input#path {
       width: 85%;
   }
 }
+
+.status-badge {
+  display: inline-block;
+  padding: 6px 12px;
+  margin-bottom: 0;
+  font-size: 1em;
+  font-weight: 400;
+  line-height: 1.42857143;
+  text-align: center;
+  white-space: nowrap;
+  vertical-align: middle;
+  -ms-touch-action: manipulation;
+  touch-action: manipulation;
+  cursor: default;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  background-image: none;
+  border: 1px solid #cccccc;
+  border-radius: 4px;
+  margin-left: 20px;
+  margin-top:-6px;
+}
+.is-status-active {
+  border-color: #28a745;
+  color: #28a745;
+}

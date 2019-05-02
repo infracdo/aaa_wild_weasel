@@ -22,7 +22,7 @@
             <h3>Reset Password for <b>{{model.username}}</b></h3>
           </div>
           <div class="modal-body">
-            <form role="form" method="post" action="/admin/admin_users/reset/{{ model.id }}">
+            <form role="form" method="post" action="/admin/users_mgr/reset/{{ model.id }}">
               {% for field_name, field_errors in form.errors|dictsort if field_errors %}
                 {% for error in field_errors %}
                   <div class="alert alert-danger alert-dismissible">
