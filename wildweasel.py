@@ -7,12 +7,12 @@ from flask_admin import helpers, expose
 from flask_admin import form as admin_form
 from flask_wtf import FlaskForm
 from flask_wtf.csrf import CSRFProtect
-from sqlalchemy import event, func
+from sqlalchemy import event, func, desc
 from werkzeug.security import generate_password_hash, check_password_hash
 from pyrad.dictionary import Dictionary
 from pyrad.client import Client
 from pyrad.packet import Packet
-from models import db, Transaction, Devices, Registered_Users, CertifiedDevices, Admin_Users, Gateways, Data_Limits, Uptimes, Announcements, Logos, RegisterUser, UserRoles, GatewayGroup, GatewayGroups, GroupAnnouncements
+from models import db, Transaction, AccessAuthLogs, Devices, Registered_Users, CertifiedDevices, Admin_Users, Gateways, Data_Limits, Uptimes, Announcements, Logos, RegisterUser, UserRoles, GatewayGroup, GatewayGroups, GroupAnnouncements, Accounting
 from googletrans import Translator
 import pyrad.packet
 import datetime, socket, uuid, os, re, hashlib
@@ -109,6 +109,21 @@ def time_in_range(start, end, x):
     else:
         return start <= x or x <= end
 
+# @sessionID
+def setSessionIdStart():
+    last = Accounting.query.filter(Accounting.acctstatustype=='Start').order_by(desc(Accounting.time_stamp)).first()
+    if not last:
+        return 1
+    else:
+        return int(last.acctsessionid) + 1
+
+def setSessionIdAlive(username):
+    last = Accounting.query.filter(Accounting.username==username).filter(Accounting.acctstatustype=='Start').order_by(desc(Accounting.time_stamp)).first()
+    if not last:
+        return 1
+    else:
+        return last.acctsessionid
+
 # <------ LOGIN ROUTE | @login ------>
 
 @app.route('/login/', methods=['GET', 'POST'])
@@ -161,14 +176,19 @@ def login():
             trans.uname = trans.mac
             session["uname"] = trans.uname
             trans.date_modified = str(datetime.datetime.now())
+            log = AccessAuthLogs(gw_id=session['gw_id'], stage="authenticated", mac=trans.mac, username=trans.uname)
+            db.session.add(log)
             db.session.commit()
             acct_req = srv.CreateAcctPacket(User_Name=trans.mac)
             acct_req["NAS-Identifier"] = trans.gw_id
             acct_req["Framed-IP-Address"] = trans.ip
-            acct_req["Acct-Session-Id"] = trans.mac
+            acct_req["Framed-MTU"] = setSessionIdStart()
             acct_req["Login-LAT-Service"] = trans.package
+            acct_req["Login-LAT-Node"] = trans.mac
             acct_req["Connect-Info"] = trans.device
             acct_req["Acct-Status-Type"] = "Start"
+            acct_req["Acct-Input-Octets"] = 0
+            acct_req["Acct-Output-Octets"] = 0
             try:
                 reply = srv.SendPacket(acct_req)
             except pyrad.client.Timeout:
@@ -250,14 +270,19 @@ def login():
                     trans.package = "Registered"
                     trans.uname = uname
                     trans.date_modified = str(datetime.datetime.now())
+                    log = AccessAuthLogs(gw_id=session['gw_id'], stage="authenticated", mac=trans.mac, username=trans.uname)
+                    db.session.add(log)
                     db.session.commit()
                     acct_req = srv.CreateAcctPacket(User_Name=trans.uname)
                     acct_req["NAS-Identifier"] = trans.gw_id
                     acct_req["Framed-IP-Address"] = trans.ip
-                    acct_req["Acct-Session-Id"] = trans.mac
+                    acct_req["Framed-MTU"] = setSessionIdStart()
                     acct_req["Login-LAT-Service"] = trans.package
+                    acct_req["Login-LAT-Node"] = trans.mac
                     acct_req["Connect-Info"] = trans.device
                     acct_req["Acct-Status-Type"] = "Start"
+                    acct_req["Acct-Input-Octets"] = 0
+                    acct_req["Acct-Output-Octets"] = 0
                     try:
                         reply = srv.SendPacket(acct_req)
                     except pyrad.client.Timeout:
@@ -329,6 +354,9 @@ def login():
             # create new transaction
             trans = Transaction(gw_sn=session['gw_sn'], gw_id=session['gw_id'], ip=session['ip'], gw_address=session['gw_address'], gw_port=session['gw_port'], mac=session['mac'], apmac=session['apmac'], ssid=session['ssid'], vlanid=session['vlanid'], token=session['token'], stage="capture", device=session['device'], date_modified=str(datetime.datetime.now()))
             db.session.add(trans)
+            log = AccessAuthLogs(stage="capture", gw_id=session['gw_id'], mac=session['mac'])
+            db.session.add(log)
+            # create new log
             db.session.commit()
         else:
             # if already exists, update the transaction row in db
@@ -345,6 +373,8 @@ def login():
             trans.stage = "capture"
             trans.device = session['device']
             trans.date_modified = str(datetime.datetime.now())
+            log = AccessAuthLogs(stage="capture", gw_id=session['gw_id'], mac=session['mac'])
+            db.session.add(log)
             db.session.commit()
         # show homepage / index page
         return render_template('index.html', send_to_access=send_to_access, lang=lang)
@@ -468,10 +498,11 @@ def auth():
     trans = Transaction.query.filter_by(token=token_n).first()
     srv = Client(server=pyradServer, secret=b"ap0ll0", dict=Dictionary("dictionary"))
     acct_req = srv.CreateAcctPacket(User_Name=trans.uname)
+    acct_req["Framed-MTU"] = setSessionIdAlive(trans.uname)
     acct_req["NAS-Identifier"] = trans.gw_id
     acct_req["Framed-IP-Address"] = trans.ip
-    acct_req["Acct-Session-Id"] = trans.mac
     acct_req["Login-LAT-Service"] = trans.package
+    acct_req["Login-LAT-Node"] = trans.mac
     acct_req["Connect-Info"] = trans.device
 
     # Stop connection during logout stage and update database
@@ -917,10 +948,13 @@ def register():
             acct_req = srv.CreateAcctPacket(User_Name=trans.mac)
             acct_req["NAS-Identifier"] = trans.gw_id
             acct_req["Framed-IP-Address"] = trans.ip
-            acct_req["Acct-Session-Id"] = trans.mac
+            acct_req["Framed-MTU"] = setSessionIdStart()
             acct_req["Login-LAT-Service"] = trans.package
+            acct_req["Login-LAT-Node"] = trans.mac
             acct_req["Connect-Info"] = trans.device
             acct_req["Acct-Status-Type"] = "Start"
+            acct_req["Acct-Input-Octets"] = 0
+            acct_req["Acct-Output-Octets"] = 0
             try:
                 reply = srv.SendPacket(acct_req)
             except pyrad.client.Timeout:
@@ -977,10 +1011,13 @@ def sendPasswordResetLink():
                 acct_req = srv.CreateAcctPacket(User_Name=trans.mac)
                 acct_req["NAS-Identifier"] = trans.gw_id
                 acct_req["Framed-IP-Address"] = trans.ip
-                acct_req["Acct-Session-Id"] = trans.mac
+                acct_req["Framed-MTU"] = setSessionIdStart()
                 acct_req["Login-LAT-Service"] = trans.package
+                acct_req["Login-LAT-Node"] = trans.mac
                 acct_req["Connect-Info"] = trans.device
                 acct_req["Acct-Status-Type"] = "Start"
+                acct_req["Acct-Input-Octets"] = 0
+                acct_req["Acct-Output-Octets"] = 0
                 try:
                     reply = srv.SendPacket(acct_req)
                 except pyrad.client.Timeout:
@@ -1010,7 +1047,7 @@ def resetUser(token):
                 return render_template("reset.html", token=token, message="Password must be at least 6 characters.")
         reguser = RegisterUser.query.filter_by(token=token).first()
         if reguser:
-            reguser.password = generate_password_hash(password1)
+            reguser.password = encryptPass(password1)
             db.session.commit()
             return render_template("logout.html", message="Your password has been reset.", returnLink=url_for('access'))
         else:
@@ -1065,14 +1102,19 @@ def cert():
         trans.package = "Certified"
         trans.uname = uname
         trans.date_modified = str(datetime.datetime.now())
+        log = AccessAuthLogs(username=trans.uname, stage="authenticated", gw_id=session['gw_id'], mac=trans.mac)
+        db.session.add(log)
         db.session.commit()
         acct_req = srv.CreateAcctPacket(User_Name=trans.mac)
         acct_req["NAS-Identifier"] = trans.gw_id
         acct_req["Framed-IP-Address"] = trans.ip
-        acct_req["Acct-Session-Id"] = trans.mac
+        acct_req["Framed-MTU"] = setSessionIdStart()
         acct_req["Login-LAT-Service"] = trans.package
+        acct_req["Login-LAT-Node"] = trans.mac
         acct_req["Connect-Info"] = trans.device
         acct_req["Acct-Status-Type"] = "Start"
+        acct_req["Acct-Input-Octets"] = 0
+        acct_req["Acct-Output-Octets"] = 0
         try:
             reply = srv.SendPacket(acct_req)
         except pyrad.client.Timeout:
@@ -1356,13 +1398,13 @@ class UserView(BaseView):
         #     model.password = generate_password_hash(form.password.data)
         # else:
         #     model.password = model.password
-        model.password = generate_password_hash(form.password.data)
         model.first_name = form.first_name.data.title()
         model.last_name = form.last_name.data.title()
         model.modified_by = current_user
         if is_created:
             model.created_by = current_user
             model.created_on = str(datetime.datetime.now())
+            model.password = generate_password_hash(form.password.data)
             # if not form.password.data:
             #     raise NotImplementedError("Please add a password.")
 
@@ -1379,10 +1421,10 @@ class UserView(BaseView):
             password1 = request.form['password1']
             password2 = request.form['password2']
             if not password1 == password2:
-                flash('The passwords you entered do not match.')
+                flash('The passwords you entered do not match.', 'danger')
                 return redirect('/admin/admin_users/edit/?id=' + id)
             if len(password1) < 5:
-                flash('Password must be at least 5 characters.')
+                flash('Password must be at least 5 characters.', 'danger')
                 return redirect('/admin/admin_users/edit/?id=' + id)
             else:
                 user = Admin_Users.query.filter_by(id=id).first()
@@ -1392,11 +1434,11 @@ class UserView(BaseView):
                     db.session.commit()
                     if user.id == current_user.id:
                         logout_user()
-                        flash('Password changed. Please log in again.')
+                        flash('Password changed. Please log in again.', 'success')
                     else:
-                        flash('Password changed.')
+                        flash('Password changed.', 'success')
                 else:
-                    flash('Database error. Please contact your administrator.')
+                    flash('Database error. Please contact your administrator.', 'danger')
                 return redirect('/admin/admin_users/')
         return redirect('/admin/admin_users/')
 
@@ -1439,10 +1481,10 @@ class ManagerUserView(UserView):
             password1 = request.form['password1']
             password2 = request.form['password2']
             if not password1 == password2:
-                flash('The passwords you entered do not match.')
+                flash('The passwords you entered do not match.', 'danger')
                 return redirect('/admin/users_mgr/edit/?id=' + id)
             if len(password1) < 5:
-                flash('Password must be at least 5 characters.')
+                flash('Password must be at least 5 characters.', 'danger')
                 return redirect('/admin/users_mgr/edit/?id=' + id)
             else:
                 user = Admin_Users.query.filter_by(id=id).first()
@@ -1452,11 +1494,11 @@ class ManagerUserView(UserView):
                     db.session.commit()
                     if user.id == current_user.id:
                         logout_user()
-                        flash('Password changed. Please log in again.')
+                        flash('Password changed. Please log in again.', 'success')
                     else:
-                        flash('Password changed.')
+                        flash('Password changed.', 'success')
                 else:
-                    flash('Database error. Please contact your administrator.')
+                    flash('Database error. Please contact your administrator.', 'danger')
                 return redirect('/admin/users_mgr/')
         return redirect('/admin/users_mgr/')
 
@@ -1503,12 +1545,15 @@ class GatewayView(BaseView):
 
 
 class DataLimitsView(BaseView):
-    column_list = ('gateway_id', 'access_type', 'limit_type', 'value', 'status', 'created_by', 'created_on', 'modified_by', 'modified_on')
+    list_template = 'admin/list_status/data_limits_adm.html'
+    column_list = ('gateway_id', 'access_type', 'limit_type', 'value', 'created_by', 'created_on', 'modified_by', 'modified_on')
     column_labels = {
         'gateway_id': 'Gateway / MPOP ID',
         'value': 'Data Usage Limit (Bytes)'
     }
     form_columns = ('gateway_id', 'access_type', 'limit_type', 'value', 'status')
+    form_edit_rules = ('gateway_id', 'access_type', 'limit_type', 'value')
+
     form_extra_fields = {
         'status': RadioField(
             'Status',
@@ -1584,8 +1629,32 @@ class DataLimitsView(BaseView):
             model.created_by = current_user
             model.created_on = str(datetime.datetime.now())
 
+    @expose('/change-status/<id>', methods=['GET', 'POST'])
+    def changeStatus(self,id):
+        if request.method == 'POST':
+            limit = Data_Limits.query.filter_by(id=id).first()
+            if limit:
+                if limit.status == 0:
+                    limit.status = 1
+                    message = 'Selected data limit for ' + limit.gw_id + ' successfully activated.' 
+                    alert = 'success'
+                else:
+                    limit.status = 0
+                    message = 'Selected data limit for ' + limit.gw_id + ' successfully deactivated.'
+                    alert = 'info'
+                limit.modified_by_id = current_user.id
+                limit.modified_on = str(datetime.datetime.now())
+                db.session.commit()
+                flash(message, alert)
+            else:
+                flash('Database error. Please contact your administrator.', 'danger')
+            return redirect('/admin/data_limits/')
+        return redirect('/admin/data_limits/')
+
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 0)
+
+    
 
 class ManagerDataLimitsView(DataLimitsView):
 
@@ -1594,6 +1663,8 @@ class ManagerDataLimitsView(DataLimitsView):
 
     def get_count_query(self):
       return self.session.query(func.count('*')).filter(self.model.gw_id==current_user.mpop_id)
+
+    list_template = 'admin/list_status/data_limits_mgr.html'
 
     form_args = {
         'modified_on': {
@@ -1626,10 +1697,33 @@ class ManagerDataLimitsView(DataLimitsView):
         }
     }
 
+    @expose('/change-status/<id>', methods=['GET', 'POST'])
+    def changeStatus(self,id):
+        if request.method == 'POST':
+            limit = Data_Limits.query.filter_by(id=id).first()
+            if limit:
+                if limit.status == 0:
+                    limit.status = 1
+                    message = 'Selected data limit for ' + limit.gw_id + ' successfully activated.' 
+                    alert = 'success'
+                else:
+                    limit.status = 0
+                    message = 'Selected data limit for ' + limit.gw_id + ' successfully deactivated.'
+                    alert = 'info'
+                limit.modified_by_id = current_user.id
+                limit.modified_on = str(datetime.datetime.now())
+                db.session.commit()
+                flash(message, alert)
+            else:
+                flash('Database error. Please contact your administrator.', 'danger')
+            return redirect('/admin/limits_mgr/')
+        return redirect('/admin/limits_mgr/')
+
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 1)
 
 class UserDataLimitsView(ManagerDataLimitsView):
+    list_template = 'admin/list_status/list_status.html'
     form_columns = ('gateway_id', 'access_type', 'limit_type', 'value')
 
     def on_model_change(self, form, model, is_created):
@@ -1647,12 +1741,14 @@ hours = [('00:00:00','12:00 AM'),('01:00:00','01:00 AM'),('02:00:00','02:00 AM')
             ('12:00:00','12:00 PM'),('13:00:00','01:00 PM'),('14:00:00','02:00 PM'),('15:00:00','03:00 PM'),('16:00:00','04:00 PM'),('17:00:00','05:00 PM'),
             ('18:00:00','06:00 PM'),('19:00:00', '07:00 PM'),('20:00:00','08:00 PM'),('21:00:00','09:00 PM'),('22:00:00','10:00 PM'),('23:00:00','11:00 PM')]
 
-class UptimesView(BaseView):    
-    column_list = ('gateway_id', 'start_time', 'end_time', 'status', 'created_by', 'created_on', 'modified_by', 'modified_on')
+class UptimesView(BaseView):
+    list_template = 'admin/list_status/uptimes_adm.html'    
+    column_list = ('gateway_id', 'start_time', 'end_time', 'created_by', 'created_on', 'modified_by', 'modified_on')
     column_labels = {
         'gateway_id': 'Gateway/MPOP ID',
     }
     form_columns = ('gateway_id', 'start_time', 'end_time', 'status')
+    form_edit_rules = ('gateway_id', 'start_time', 'end_time')
     form_extra_fields = {
         'status': RadioField(
             'Status',
@@ -1708,10 +1804,33 @@ class UptimesView(BaseView):
             model.created_by = current_user
             model.created_on = str(datetime.datetime.now())
 
+    @expose('/change-status/<id>', methods=['GET', 'POST'])
+    def changeStatus(self,id):
+        if request.method == 'POST':
+            uptime = Uptimes.query.filter_by(id=id).first()
+            if uptime:
+                if uptime.status == 0:
+                    uptime.status = 1
+                    message = 'Selected uptime for ' + uptime.gw_id + ' successfully activated.' 
+                    alert = 'success'
+                else:
+                    uptime.status = 0
+                    message = 'Selected uptime for ' + uptime.gw_id + ' successfully deactivated.'
+                    alert = 'info'
+                uptime.modified_by_id = current_user.id
+                uptime.modified_on = str(datetime.datetime.now())
+                db.session.commit()
+                flash(message, alert)
+            else:
+                flash('Database error. Please contact your administrator.', 'danger')
+            return redirect('/admin/uptimes/')
+        return redirect('/admin/uptimes/')
+
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 0)
 
 class ManagerUptimesView(UptimesView):
+    list_template = 'admin/list_status/uptimes_mgr.html'
     def get_query(self):
       return self.session.query(self.model).filter(self.model.gw_id==current_user.mpop_id)
 
@@ -1738,11 +1857,33 @@ class ManagerUptimesView(UptimesView):
             }
     }
 
+    @expose('/change-status/<id>', methods=['GET', 'POST'])
+    def changeStatus(self,id):
+        if request.method == 'POST':
+            uptime = Uptimes.query.filter_by(id=id).first()
+            if uptime:
+                if uptime.status == 0:
+                    uptime.status = 1
+                    message = 'Selected uptime for ' + uptime.gw_id + ' successfully activated.' 
+                    alert = 'success'
+                else:
+                    uptime.status = 0
+                    message = 'Selected uptime for ' + uptime.gw_id + ' successfully deactivated.'
+                    alert = 'info'
+                uptime.modified_by_id = current_user.id
+                uptime.modified_on = str(datetime.datetime.now())
+                db.session.commit()
+                flash(message, alert)
+            else:
+                flash('Database error. Please contact your administrator.', 'danger')
+            return redirect('/admin/uptimes_mgr/')
+        return redirect('/admin/uptimes_mgr/')
+
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 1)
 
 class UserUptimesView(ManagerUptimesView):
-
+    list_template = 'admin/list_status/list_status.html'
     form_columns = ('gateway_id', 'start_time', 'end_time')
 
     def on_model_change(self, form, model, is_created):
@@ -1774,8 +1915,10 @@ def _list_thumbnail(view, context, model, name):
 
 class AnnouncementsView(BaseView):
 
+    list_template = 'admin/list_status/announcements_adm.html'
+
     column_list = [
-        'gateway_id', 'image', 'status', 'created_by', 'created_on', 'modified_by', 'modified_on'
+        'gateway_id', 'image', 'created_by', 'created_on', 'modified_by', 'modified_on'
     ]
 
     column_labels = {
@@ -1794,6 +1937,7 @@ class AnnouncementsView(BaseView):
         )
     }
     form_columns = ('gateway_id', 'name', 'path', 'status')
+    form_edit_rules = ('gateway_id', 'name', 'path')
 
     form_args = {
         'gateway_id': {
@@ -1821,10 +1965,35 @@ class AnnouncementsView(BaseView):
             model.created_by = current_user
             model.created_on = str(datetime.datetime.now())
 
+    @expose('/change-status/<id>', methods=['GET', 'POST'])
+    def changeStatus(self,id):
+        if request.method == 'POST':
+            announcement = Announcements.query.filter_by(id=id).first()
+            if announcement:
+                if announcement.status == 0:
+                    announcement.status = 1
+                    message = 'Selected announcement for ' + announcement.gw_id + ' successfully activated.' 
+                    alert = 'success'
+                else:
+                    announcement.status = 0
+                    message = 'Selected announcement for ' + announcement.gw_id + ' successfully deactivated.'
+                    alert = 'info'
+                announcement.modified_by_id = current_user.id
+                announcement.modified_on = str(datetime.datetime.now())
+                db.session.commit()
+                flash(message, alert)
+            else:
+                flash('Database error. Please contact your administrator.', 'danger')
+            return redirect('/admin/announcements/')
+        return redirect('/admin/announcements/')
+
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 0)
 
 class ManagerAnnouncementsView(AnnouncementsView):
+
+    list_template = 'admin/list_status/announcements_mgr.html'
+
     def get_query(self):
       return self.session.query(self.model).filter(self.model.gw_id==current_user.mpop_id)
 
@@ -1843,10 +2012,34 @@ class ManagerAnnouncementsView(AnnouncementsView):
         }
     }
 
+    @expose('/change-status/<id>', methods=['GET', 'POST'])
+    def changeStatus(self,id):
+        if request.method == 'POST':
+            announcement = Announcements.query.filter_by(id=id).first()
+            if announcement:
+                if announcement.status == 0:
+                    announcement.status = 1
+                    message = 'Selected announcement for ' + announcement.gw_id + ' successfully activated.' 
+                    alert = 'success'
+                else:
+                    announcement.status = 0
+                    message = 'Selected announcement for ' + announcement.gw_id + ' successfully deactivated.'
+                    alert = 'info'
+                announcement.modified_by_id = current_user.id
+                announcement.modified_on = str(datetime.datetime.now())
+                db.session.commit()
+                flash(message, alert)
+            else:
+                flash('Database error. Please contact your administrator.', 'danger')
+            return redirect('/admin/announcements_mgr/')
+        return redirect('/admin/announcements_mgr/')
+
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 1)
 
 class UserAnnouncementsView(ManagerAnnouncementsView):
+
+    list_template = 'admin/list_status/list_status.html'
 
     form_columns = ('gateway_id', 'name', 'path')
 
@@ -1871,8 +2064,10 @@ def del_image(mapper, connection, target):
 
 class GroupAnnouncementsView(BaseView):
 
+    list_template = 'admin/list_status/grpannouncements_adm.html'
+
     column_list = [
-        'group', 'image', 'status', 'created_by', 'created_on', 'modified_by', 'modified_on'
+        'group', 'image', 'created_by', 'created_on', 'modified_by', 'modified_on'
     ]
 
     column_labels = {
@@ -1891,6 +2086,7 @@ class GroupAnnouncementsView(BaseView):
         )
     }
     form_columns = ('group', 'name', 'path', 'status')
+    form_edit_rules = ('group', 'name', 'path')
 
     form_args = {
         'group': {
@@ -1918,6 +2114,28 @@ class GroupAnnouncementsView(BaseView):
             model.created_by = current_user
             model.created_on = str(datetime.datetime.now())
 
+    @expose('/change-status/<id>', methods=['GET', 'POST'])
+    def changeStatus(self,id):
+        if request.method == 'POST':
+            announcement = GroupAnnouncements.query.filter_by(id=id).first()
+            if announcement:
+                if announcement.status == 0:
+                    announcement.status = 1
+                    message = 'Selected group announcement successfully activated.' 
+                    alert = 'success'
+                else:
+                    announcement.status = 0
+                    message = 'Selected group announcement successfully deactivated.'
+                    alert = 'info'
+                announcement.modified_by_id = current_user.id
+                announcement.modified_on = str(datetime.datetime.now())
+                db.session.commit()
+                flash(message, alert)
+            else:
+                flash('Database error. Please contact your administrator.', 'danger')
+            return redirect('/admin/groupannouncements/')
+        return redirect('/admin/groupannouncements/')
+
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 0)
 
@@ -1932,8 +2150,10 @@ def del_image(mapper, connection, target):
 
 class LogosView(BaseView):
 
+    list_template = 'admin/list_status/logos_adm.html'
+
     column_list = [
-        'image', 'gateway_id', 'status', 'created_by', 'created_on', 'modified_by', 'modified_on'
+        'image', 'gateway_id', 'created_by', 'created_on', 'modified_by', 'modified_on'
     ]
 
     column_labels = {
@@ -1953,6 +2173,7 @@ class LogosView(BaseView):
     }
 
     form_columns = ('gateway_id', 'name', 'path', 'status')
+    form_edit_rules = ('gateway_id', 'name', 'path')
 
     form_args = {
         'gateway_id': {
@@ -1980,10 +2201,35 @@ class LogosView(BaseView):
             model.created_by = current_user
             model.created_on = str(datetime.datetime.now())
 
+    @expose('/change-status/<id>', methods=['GET', 'POST'])
+    def changeStatus(self,id):
+        if request.method == 'POST':
+            logo = Logos.query.filter_by(id=id).first()
+            if logo:
+                if logo.status == 0:
+                    logo.status = 1
+                    message = 'Selected logo for ' + logo.gw_id + ' successfully activated.' 
+                    alert = 'success'
+                else:
+                    logo.status = 0
+                    message = 'Selected logo for ' + logo.gw_id + ' successfully deactivated.'
+                    alert = 'info'
+                logo.modified_by_id = current_user.id
+                logo.modified_on = str(datetime.datetime.now())
+                db.session.commit()
+                flash(message, alert)
+            else:
+                flash('Database error. Please contact your administrator.', 'danger')
+            return redirect('/admin/logos/')
+        return redirect('/admin/logos/')
+
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 0)
 
 class ManagerLogosView(LogosView):
+
+    list_template = 'admin/list_status/logos_mgr.html'
+
     def get_query(self):
       return self.session.query(self.model).filter(self.model.gw_id==current_user.mpop_id)
 
@@ -2002,11 +2248,33 @@ class ManagerLogosView(LogosView):
         }
     }
 
+    @expose('/change-status/<id>', methods=['GET', 'POST'])
+    def changeStatus(self,id):
+        if request.method == 'POST':
+            logo = Logos.query.filter_by(id=id).first()
+            if logo:
+                if logo.status == 0:
+                    logo.status = 1
+                    message = 'Selected logo for ' + logo.gw_id + ' successfully activated.' 
+                    alert = 'success'
+                else:
+                    logo.status = 0
+                    message = 'Selected logo for ' + logo.gw_id + ' successfully deactivated.'
+                    alert = 'info'
+                logo.modified_by_id = current_user.id
+                logo.modified_on = str(datetime.datetime.now())
+                db.session.commit()
+                flash(message, alert)
+            else:
+                flash('Database error. Please contact your administrator.', 'danger')
+            return redirect('/admin/logos_mgr/')
+        return redirect('/admin/logos_mgr/')
+
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 1)
 
 class UserLogosView(ManagerLogosView):
-
+    list_template = 'admin/list_status/list_status.html'
     form_columns = ('gateway_id', 'name', 'path')
 
     def on_model_change(self, form, model, is_created):
@@ -2129,7 +2397,7 @@ class AdminIndexView(admin.AdminIndexView):
                 user.modified_by_id = current_user.id
                 db.session.commit()
                 logout_user()
-                flash('Password changed. Please log in again.')
+                flash('Password changed. Please log in again.', 'success')
                 return redirect(url_for('.index'))
         return self.render('admin_user_profile.html', form=admform)
 

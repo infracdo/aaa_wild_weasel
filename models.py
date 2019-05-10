@@ -69,6 +69,18 @@ class Transaction(BaseModel, db.Model):
         self.date_modified = kwargs.get('date_modified')
 
 
+class AccessAuthLogs(db.Model):
+    """Model for capture & authenticated logs table"""
+    __tablename__ = 'access_auth_logs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String)
+    stage = db.Column(db.String)
+    gw_id = db.Column(db.String)
+    date = db.Column(db.DateTime, default=datetime.datetime.now)
+    mac = db.Column(db.String)
+
+
 class Devices(BaseModel, db.Model):
     """Model for the devices table"""
     __tablename__ = 'devices'
@@ -432,3 +444,22 @@ class RegisterUser(db.Model):
     token = db.Column(db.String)
     registration_date = db.Column(db.String)
     validated = db.Column(db.SmallInteger)
+
+
+class Accounting(db.Model):
+    """Model for the radius accounting table"""
+    __tablename__ = 'accounting'
+    __bind_key__ = 'radius'
+
+    username = db.Column(db.String, primary_key=True)
+    time_stamp = db.Column(db.BigInteger, primary_key=True)
+    acctstatustype = db.Column(db.String)
+    acctsessionid = db.Column(db.BigInteger)
+    nasidentifier = db.Column(db.String)
+    auth_mode = db.Column(db.String)
+    device = db.Column(db.String)
+    acctinputoctets = db.Column(db.BigInteger)
+    acctoutputoctets = db.Column(db.BigInteger)
+    framedipaddress = db.Column(db.String)
+    mac = db.Column(db.String)
+    created_at = db.Column(db.DateTime(timezone=True))

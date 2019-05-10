@@ -91,6 +91,7 @@
                         {% endif %}
                     </th>
                     {% endfor %}
+                    <th>Status</th>
                     {% block list_row_actions_header %}
                         {% if admin_view.column_display_actions %}
                         <th class="col-md-1">Allowed <br /> Actions</th>
@@ -122,6 +123,16 @@
                     {% endif %}
                     </td>
                 {% endfor %}
+
+                <td class="stat">
+                        {% if get_raw_value(row,'status') == 1 %}
+                        <p class="status-badge unlink unlink-active"><span class="glyphicon glyphicon-ok-circle" aria-hidden="true"></span>&nbsp;<b>ACTIVE</b></p>
+                        {% elif get_raw_value(row,'status') == 0 %}
+                        <p class="status-badge unlink unlink-inactive"><span class="glyphicon glyphicon-remove-circle" aria-hidden="true"></span>&nbsp;<b>INACTIVE</b></p>
+                        {% else %}
+                        &nbsp;
+                        {% endif %}
+                </td>
 
                 {% block list_row_actions_column scoped %}
                     {% if admin_view.column_display_actions %}

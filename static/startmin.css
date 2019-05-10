@@ -859,9 +859,12 @@ input#path {
   }
 }
 
+.table-bordered > tbody > tr > td.stat, .table-bordered > tbody > tr > .stat td {
+  text-align: center;
+}
 .status-badge {
   display: inline-block;
-  padding: 6px 12px;
+  padding: 6px;
   margin-bottom: 0;
   font-size: 1em;
   font-weight: 400;
@@ -871,18 +874,35 @@ input#path {
   vertical-align: middle;
   -ms-touch-action: manipulation;
   touch-action: manipulation;
-  cursor: default;
+  cursor: pointer;
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
   user-select: none;
   background-image: none;
+  background-color: transparent;
   border: 1px solid #cccccc;
   border-radius: 4px;
-  margin-left: 20px;
-  margin-top:-6px;
 }
-.is-status-active {
+.unlink {
+  cursor: default;
+}
+.is-status-active, .unlink-active {
+  padding: 6px 12px;
   border-color: #28a745;
   color: #28a745;
+}
+.is-status-active:hover {
+  color: white;
+  background-color: #d43f3a;
+  border-color: #d43f3a;
+}
+.is-status-inactive, .unlink-inactive {
+  border-color: #999;
+  color: #999;
+}
+.is-status-inactive:hover {
+  color: white;
+  background-color: #28a745;
+  border-color: #28a745;
 }

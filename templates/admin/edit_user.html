@@ -2,9 +2,11 @@
 
 {% block body %}
     <h2 id="brand" style="display:inline">Edit {{ admin_view.name[:-1] }}</h2>
+    {% if model.id != current_user.id %}
     <a href="#" title="Reset Password" data-target="#reset" data-toggle="modal">
       <button class="btn btn-default" style="margin-left: 20px; margin-top:-6px;">Reset Password</button>
     </a>
+    {% endif %}
     <div class="clearfix"></div>
     <hr>
   {% call lib.form_tag(form) %}
