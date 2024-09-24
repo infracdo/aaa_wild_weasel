@@ -4,7 +4,6 @@ from flask_uploads import UploadSet, IMAGES
 
 db = SQLAlchemy()
 
-
 class BaseModel(db.Model):
     """Base data model for all objects"""
     __abstract__ = True
@@ -49,6 +48,7 @@ class Transaction(BaseModel, db.Model):
     package = db.Column(db.String)
     device = db.Column(db.String)
     date_modified = db.Column(db.String)
+    start_time = db.Column(db.DateTime(timezone=True))
 
     def __init__(self, **kwargs):
         self.id = kwargs.get('id')
@@ -67,6 +67,7 @@ class Transaction(BaseModel, db.Model):
         self.package = kwargs.get('package')
         self.device = kwargs.get('device')
         self.date_modified = kwargs.get('date_modified')
+        self.start_time = kwargs.get('start_time')
 
 
 class AccessAuthLogs(db.Model):
@@ -257,6 +258,8 @@ class Gateways(db.Model):
         "Data_Limits", backref="gateway_id", lazy="dynamic", passive_deletes='all')
     uptimes = db.relationship(
         "Uptimes", backref="gateway_id", lazy="dynamic", passive_deletes='all')
+    redirects = db.relationship(
+        "PortalRedirectLinks", backref="gateway_id", lazy="dynamic", passive_deletes='all')
     announcements = db.relationship(
         "Announcements", backref="gateway_id", lazy="dynamic", passive_deletes='all')
     logos = db.relationship(
@@ -315,6 +318,23 @@ class Uptimes(db.Model):
     modified_by = db.relationship("Admin_Users", foreign_keys=[modified_by_id])
     modified_on = db.Column(
         db.String, default=datetime.datetime.now, onupdate=datetime.datetime.now)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
+    created_by = db.relationship("Admin_Users", foreign_keys=[created_by_id])
+    created_on = db.Column(db.String)
+
+
+class PortalRedirectLinks(db.Model):
+    """Model for the portal uptimes table"""
+    __tablename__ = 'redirect_links'
+
+    id = db.Column(db.Integer, primary_key=True)
+    gw_id = db.Column(db.String, db.ForeignKey(
+        'gateways.gw_id', ondelete='RESTRICT'), unique=True, nullable=False)
+    url = db.Column(db.String)
+    status = db.Column(db.SmallInteger, default=0)
+    modified_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
+    modified_by = db.relationship("Admin_Users", foreign_keys=[modified_by_id])
+    modified_on = db.Column(db.String, default=datetime.datetime.now, onupdate=datetime.datetime.now)
     created_by_id = db.Column(db.Integer, db.ForeignKey('admin_users.id', ondelete='RESTRICT'), nullable=False)
     created_by = db.relationship("Admin_Users", foreign_keys=[created_by_id])
     created_on = db.Column(db.String)
@@ -463,3 +483,10 @@ class Accounting(db.Model):
     framedipaddress = db.Column(db.String)
     mac = db.Column(db.String)
     created_at = db.Column(db.DateTime(timezone=True))
+
+class SessionId(db.Model):
+    """Model for the radius accounting table"""
+    __tablename__ = 'session_ids'
+
+    session_id = db.Column(db.String, primary_key=True)
+    mac = db.Column(db.String, unique=True, nullable=False)

@@ -1,4 +1,4 @@
-from flask import Flask, flash, redirect, url_for, request, make_response, render_template, session
+from flask import Flask, flash, redirect, url_for, request, make_response, render_template, session, g, jsonify
 from wtforms import form, fields, validators, SelectField, HiddenField, RadioField, PasswordField, StringField, TextAreaField
 import flask_admin as admin
 from flask_login import LoginManager, current_user, login_user, logout_user
@@ -7,59 +7,67 @@ from flask_admin import helpers, expose
 from flask_admin import form as admin_form
 from flask_wtf import FlaskForm
 from flask_wtf.csrf import CSRFProtect
-from sqlalchemy import event, func, desc
+from sqlalchemy import event, func, desc, Sequence
+from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash, check_password_hash
 from pyrad.dictionary import Dictionary
 from pyrad.client import Client
 from pyrad.packet import Packet
-from models import db, Transaction, AccessAuthLogs, Devices, Registered_Users, CertifiedDevices, Admin_Users, Gateways, Data_Limits, Uptimes, Announcements, Logos, RegisterUser, UserRoles, GatewayGroup, GatewayGroups, GroupAnnouncements, Accounting
+from models import db, Transaction, AccessAuthLogs, Devices, Registered_Users, CertifiedDevices, Admin_Users, Gateways, Data_Limits, Uptimes, Announcements, Logos, RegisterUser, UserRoles, GatewayGroup, GatewayGroups, GroupAnnouncements, Accounting, PortalRedirectLinks, SessionId
 from googletrans import Translator
 import pyrad.packet
-import datetime, socket, uuid, os, re, hashlib
+import datetime, socket, uuid, os, re, hashlib, json
 from flask_uploads import UploadSet, IMAGES, configure_uploads, patch_request_class
-from jinja2 import Markup
+#from jinja2 import Markup
+from markupsafe import Markup #newly added
 from tzlocal import get_localzone
-from send_mail import send_mail
+from send_mail import send_mail         
 from math import ceil
+import csv
+import io
 import warnings
+import sys
+from googletrans import Translator #newly added
+from tzlocal import get_localzone   #newly added
 
 app = Flask(__name__)
 csrf = CSRFProtect(app)
 app.secret_key = b'_5#y2L!.4Q8z\n\xec]/'
 
-# POSTGRES = {
-#     'user': 'wildweasel',
-#     'pw': 'ap0ll0',
-#     'db': 'wildweasel',
-#     'host': 'localhost',
-#     'port': '5432',
-# }
-
-# RADIUS = {
-#     'user': 'radius',
-#     'pw': 'ap0ll0',
-#     'db': 'radius',
-#     'host': 'localhost',
-#     'port': '5432',
-# }
-
-pyradServer = "192.168.88.145"
-
 POSTGRES = {
     'user': 'wildweasel',
-    'pw': 'ap0ll0',
+    'pw': 'ap0ll0ap0ll0',
     'db': 'wildweasel',
-    'host': '192.168.88.145',
+    'host': 'localhost',
     'port': '5432',
 }
 
 RADIUS = {
-    'user': 'radiator',
-    'pw': 'ap0ll0',
+    'user': 'wildweasel',
+    'pw': 'ap0ll0ap0ll0',
     'db': 'radius',
-    'host': '192.168.88.145',
+    'host': 'localhost',
     'port': '5432',
 }
+
+pyradServer = "192.168.90.73"
+portal_url_root = "http://192.168.90.73:8080/"
+
+#POSTGRES = {
+#    'user': 'wildweasel',
+#    'pw': 'ap0ll0',
+#    'db': 'wildweasel',
+#    'host': '192.168.88.145',
+#    'port': '5432',
+#}
+
+#RADIUS = {
+#    'user': 'radiator',
+#    'pw': 'ap0ll0',
+#    'db': 'radius',
+#    'host': '192.168.88.145',
+#    'port': '5432',
+#}
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://%(user)s:%(pw)s@%(host)s:%(port)s/%(db)s' % POSTGRES
 app.config['SQLALCHEMY_BINDS'] = {
@@ -68,6 +76,13 @@ app.config['SQLALCHEMY_BINDS'] = {
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
+
+APP_ROOT = os.path.dirname(os.path.abspath(__file__))   # refers to application_top
+APP_STATIC = os.path.join(APP_ROOT, 'static')
+
+def load_json_file(filename):
+    with open(filename) as json_file:
+        return json.load(json_file)
 
 
 # @app.before_request
@@ -83,7 +98,8 @@ def hello_world():
     return redirect(url_for('login'))
 
 
-@app.route('/ping/')
+@app.route('/wifidog/ping', strict_slashes=False)
+@app.route('/ping', strict_slashes=False)
 def ping():
     return "Pong"
 
@@ -92,6 +108,13 @@ def encryptPass(userInput):
     db_password = userInput + salt
     return hashlib.md5(db_password.encode()).hexdigest()
 
+@app.route('/authenticate', methods=['POST'])
+def authenticate():
+    password = request.form.get('password')
+    if password and encryptPass(password) == 'ap0ll0': 
+        return jsonify({'status': 'success'}), 200
+    return jsonify({'status': 'failure'}), 401
+
 # <------ GET DATA LIMIT SETTINGS | @getLimit ------>
 def getLimit(gw_id, access_type, limit_type, default):
     _default = Data_Limits.query.filter_by(
@@ -99,6 +122,7 @@ def getLimit(gw_id, access_type, limit_type, default):
     default = default if _default == None else _default.value
     limit = Data_Limits.query.filter_by(
         gw_id=gw_id, access_type=access_type, limit_type=limit_type,status=1).first()
+    
     return default if limit == None else limit.value
 
 # <------ CHECK IF TIME IN RANGE for uptime | @timeinRage ------>
@@ -110,24 +134,38 @@ def time_in_range(start, end, x):
         return start <= x or x <= end
 
 # @sessionID
-def setSessionIdStart():
-    last = Accounting.query.filter(Accounting.acctstatustype=='Start').order_by(desc(Accounting.time_stamp)).first()
-    if not last:
-        return 1
-    else:
-        return int(last.acctsessionid) + 1
+def setSessionIdStart(mac):
+    #last = Accounting.query.filter(Accounting.acctstatustype=='Start').order_by(desc(Accounting.time_stamp)).first()
+    seq = Sequence('session_id_seq')
+    next_id = db.session.execute(seq)
+    acctsessionid = mac + "&" + str(next_id)
 
-def setSessionIdAlive(username):
-    last = Accounting.query.filter(Accounting.username==username).filter(Accounting.acctstatustype=='Start').order_by(desc(Accounting.time_stamp)).first()
+    last = SessionId.query.filter_by(mac=mac).first()
     if not last:
-        return 1
+        new = SessionId(session_id=acctsessionid, mac=mac)
+        db.session.add(new)
     else:
-        return last.acctsessionid
+        last.session_id = acctsessionid
+    db.session.commit()
+
+    return acctsessionid
+
+def setSessionIdAlive(mac):
+    last_id = SessionId.query.filter_by(mac=mac).first().session_id
+    return last_id
 
 # <------ LOGIN ROUTE | @login ------>
 
-@app.route('/login/', methods=['GET', 'POST'])
+@app.route('/wifidog/login/', methods=['GET', 'POST'], strict_slashes=False)
+@app.route('/login/', methods=['GET', 'POST'], strict_slashes=False)
 def login():
+
+    if session.get('messages'):
+        messages = session['messages']
+    else:
+        messages = load_json_file(os.path.join(APP_STATIC, 'lang/en.json'))
+    
+    session['title'] = messages['title']
 
     # LOGIN: POST request | @post
     if request.method == 'POST':
@@ -143,24 +181,26 @@ def login():
             # get dynamic limits, @hardcoded defaults
             daily_limit = getLimit(session['gw_id'], 1, 'dd', 50000000)
             month_limit = getLimit(session['gw_id'], 1, 'mm', 1000000000)
-            session['type'] = 'One-Click'
+            session['type'] = 'One-Click Login'
 
             #check if device already exists in database
             trans = Transaction.query.filter_by(token=token).first()
             if Devices.query.filter_by(mac=trans.mac).count() > 0:
                 device = Devices.query.filter_by(mac=trans.mac).first()
-                last_active_date = datetime.datetime.strptime(
-                    device.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
+                try:
+                    last_active_date = datetime.datetime.strptime(device.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
+                except:
+                    last_active_date = datetime.datetime.strptime(device.last_active, '%Y-%m-%d %H:%M:%S').date()
                 if device.free_data >= daily_limit:
                     if last_active_date == datetime.date.today():
-                        return render_template('logout.html', message="You have exceeded your data usage limit for today.", returnLink=url_for('access'))
+                        return render_template('logout.html', message=messages['day_limit_exceeded'], returnLink=url_for('access'), return_text=messages['return_text'])
                     else:
                         device.free_data = 0
                         db.session.commit()
                 else:
                     if device.month_data >= month_limit:
                         if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
-                            return render_template('logout.html', message="You have exceeded your data usage limit for this month.", returnLink=url_for('access'))
+                            return render_template('logout.html', message=messages['month_limit_exceeded'], returnLink=url_for('access'), return_text=messages['return_text'])
                         else:
                             device.month_data = 0
                             db.session.commit()
@@ -172,47 +212,59 @@ def login():
 
             # authenticate free access device   
             trans.stage = "authenticated"
-            trans.package = "One-Click"
+            trans.package = "One-Click Login"
             trans.uname = trans.mac
             session["uname"] = trans.uname
             trans.date_modified = str(datetime.datetime.now())
+            trans.last_active = get_localzone().localize(datetime.datetime.now())
+            trans.start_time = get_localzone().localize(datetime.datetime.now())
             log = AccessAuthLogs(gw_id=session['gw_id'], stage="authenticated", mac=trans.mac, username=trans.uname)
             db.session.add(log)
             db.session.commit()
             acct_req = srv.CreateAcctPacket(User_Name=trans.mac)
             acct_req["NAS-Identifier"] = trans.gw_id
             acct_req["Framed-IP-Address"] = trans.ip
-            acct_req["Framed-MTU"] = setSessionIdStart()
+            acct_req["Callback-Id"] = setSessionIdStart(trans.mac)
             acct_req["Login-LAT-Service"] = trans.package
             acct_req["Login-LAT-Node"] = trans.mac
             acct_req["Connect-Info"] = trans.device
             acct_req["Acct-Status-Type"] = "Start"
-            acct_req["Acct-Input-Octets"] = 0
-            acct_req["Acct-Output-Octets"] = 0
+            acct_req["Called-Station-Id"] = '0'
+            acct_req["Calling-Station-Id"] = '0'
+
             try:
                 reply = srv.SendPacket(acct_req)
             except pyrad.client.Timeout:
                 message = "RADIUS server does not reply"
+                
                 return render_template("logout.html", message=message, hideReturnToHome=True)
             except socket.error as error:
                 message = "Network error: " + error[1]
+                
                 return render_template("logout.html", message=message, hideReturnToHome=True)
+            
             return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
         else:
             # <------ LOGIN, POST: REGISTERED ACCESS | @loginReg ------>
-            if package == "Registered":
+            if package == "Register":
                 # get dynamic limits, @hardcoded defaults
                 daily_limit = getLimit(session['gw_id'], 2, 'dd', 100000000)
                 month_limit = getLimit(session['gw_id'], 2, 'mm', 2000000000)
-                session['type'] = 'Registered'
+                session['type'] = 'Register'
 
                 # check status
                 reguser = RegisterUser.query.filter_by(username=uname).first()
                 if reguser:
                     if reguser.status == 0:
-                        message = "Access denied! Your email address has not been verified."
-                        resp = make_response(render_template('logout.html', message=message, returnLink=url_for('access')))
+                        if session.get('lang'):
+                            lang = session['lang']
+                        else:
+                            lang = 'en'
+                        message = messages['login_unverified']
+                        button_text = messages['activation_button']
+                        resp = make_response(render_template('logout.html', message=message, verifyLink=url_for('verify',username=reguser.username,lang=lang), verifyText=button_text, returnLink=url_for('access'), return_text=messages['return_text']))
                         resp.set_cookie('token', token)
+                        
                         return resp
                     # Check for 30 Day Expiry / Validation 
                     # if int(reguser.validated) == 0:
@@ -232,29 +284,35 @@ def login():
                     reply = srv.SendPacket(req)
                 except (pyrad.client.Timeout, Timeout):
                     message = "RADIUS server does not reply"
+                    
                     return render_template("logout.html", message=message, hideReturnToHome=True)
                 except socket.error as error:
                     message = "Network error: " + error[1]
+                    
                     return render_template("logout.html", message=message, hideReturnToHome=True)
                 except:
                     message = "Server error"
+                    
                     return render_template("logout.html", message=message, hideReturnToHome=True)
                 if reply.code == pyrad.packet.AccessAccept:
                     # if credentials accepted
                     # if user already exists in db
                     if Registered_Users.query.filter_by(uname=uname).count() > 0:
                         user = Registered_Users.query.filter_by(uname=uname).first()
-                        last_active_date = datetime.datetime.strptime(user.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
+                        try:
+                            last_active_date = datetime.datetime.strptime(user.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
+                        except:
+                            last_active_date = datetime.datetime.strptime(user.last_active, '%Y-%m-%d %H:%M:%S').date()
                         if user.registered_data >= daily_limit:
                             if last_active_date == datetime.date.today():
-                                return render_template('logout.html', message="You have exceeded your data usage limit for today.",returnLink=url_for('access'))
+                                return render_template('logout.html', message=messages['day_limit_exceeded'],returnLink=url_for('access'), return_text=messages['return_text'])
                             else:
                                 user.registered_data = 0
                                 db.session.commit()
                         else:
                             if user.month_data >= month_limit:
                                 if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
-                                    return render_template('logout.html', message="You have exceeded your data usage limit for this month.", returnLink=url_for('access'))
+                                    return render_template('logout.html', message=messages['month_limit_exceeded'], returnLink=url_for('access'), return_text=messages['return_text'])
                                 else:
                                     user.month_data = 0
                                     db.session.commit()
@@ -267,42 +325,57 @@ def login():
                     # update transaction table, authenticate user
                     trans = Transaction.query.filter_by(token=token).first()
                     trans.stage = "authenticated"
-                    trans.package = "Registered"
+                    trans.package = "Register"
                     trans.uname = uname
                     trans.date_modified = str(datetime.datetime.now())
+                    trans.last_active = get_localzone().localize(datetime.datetime.now())
+                    trans.start_time = get_localzone().localize(datetime.datetime.now())
                     log = AccessAuthLogs(gw_id=session['gw_id'], stage="authenticated", mac=trans.mac, username=trans.uname)
                     db.session.add(log)
                     db.session.commit()
                     acct_req = srv.CreateAcctPacket(User_Name=trans.uname)
                     acct_req["NAS-Identifier"] = trans.gw_id
                     acct_req["Framed-IP-Address"] = trans.ip
-                    acct_req["Framed-MTU"] = setSessionIdStart()
+                    acct_req["Callback-Id"] = setSessionIdStart(trans.mac)
                     acct_req["Login-LAT-Service"] = trans.package
                     acct_req["Login-LAT-Node"] = trans.mac
                     acct_req["Connect-Info"] = trans.device
                     acct_req["Acct-Status-Type"] = "Start"
-                    acct_req["Acct-Input-Octets"] = 0
-                    acct_req["Acct-Output-Octets"] = 0
+                    acct_req["Called-Station-Id"] = '0'
+                    acct_req["Calling-Station-Id"] = '0'
                     try:
                         reply = srv.SendPacket(acct_req)
                     except pyrad.client.Timeout:
                         message = "RADIUS server does not reply"
+                        
                         return render_template("logout.html", message=message, hideReturnToHome=True)
                     except socket.error as error:
                         message = "Network error: " + error[1]
+                        
                         return render_template("logout.html", message=message, hideReturnToHome=True)
+                    
                     return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
                 else:
                     # if wrong credentials
-                    message = "Access denied!"
-                    resp = make_response(render_template('login.html', message=message))
+                    message = messages['login_creds_denied']
+                    if session.get('lang'):
+                        lang = session['lang']
+                    else:
+                        lang = 'en'
+                    resp = make_response(render_template('login.html', lang=lang, message=message))
                     resp.set_cookie('token', token)
+                    
                     return resp
 
     else:
         # <------ LOGIN, GET: HOMEPAGE | @loginGet, @home ------>
         # retrieve arguments from access point and save to session
         # @tofollow
+
+        if request.headers.get('isHTTPS') == "no":
+            path = str(request.url).replace(str(request.url_root),portal_url_root,1)
+            #print(path)
+            return render_template('redirect.html', path=path)
 
         session['gw_id'] = request.args.get('gw_id', default='', type=str)
         session['gw_sn'] = request.args.get('gw_sn', default='', type=str)
@@ -317,9 +390,32 @@ def login():
         session['device'] = request.headers.get('User-Agent')
         session['logged_in'] = True
 
+        # print("NAS-Identifier")
+        # print(session['gw_id'])
+        # print("Framed-IP-Address")
+        # print(session['gw_id'])
+        # print("Callback-Id")
+        # print("Login-LAT-Service")
+        # print("Login-LAT-Node")
+        # print("Connect-Info")
+        # print("Acct-Status-Type")
+        # print("Called-Station-Id")
+        # print("Calling-Station-Id")
+
+        # acct_req = srv.CreateAcctPacket(User_Name=trans.uname)
+        #             acct_req["NAS-Identifier"] = trans.gw_id
+        #             acct_req["Framed-IP-Address"] = trans.ip
+        #             acct_req["Callback-Id"] = setSessionIdStart(trans.mac)
+        #             acct_req["Login-LAT-Service"] = trans.package
+        #             acct_req["Login-LAT-Node"] = trans.mac
+        #             acct_req["Connect-Info"] = trans.device
+        #             acct_req["Acct-Status-Type"] = "Start"
+        #             acct_req["Called-Station-Id"] = '0'
+        #             acct_req["Calling-Station-Id"] = '0'
+
         # catch errors: if no IP, if not accessed through wifi, redirect
         if session['ip'] == '' or session['ip'] == None:
-            return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
+            return render_template('logout.html', message=messages['connect'], hideReturnToHome=True)
         
         # if portal downtime, don't proceed
         today = datetime.date.today().strftime('%Y-%m-%d')
@@ -331,7 +427,7 @@ def login():
             start = datetime.time(*map(int, str(uptime.start_time).split(':')))
             end = datetime.time(*map(int, str(uptime.end_time).split(':')))
             if not time_in_range(start, end, tz.localize(datetime.datetime.now()).time()):
-                return render_template('logout.html', message=("Sorry, Pipol Konek is only available from " + start.strftime("%-I:%M %p") + " to " + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
+                return render_template('logout.html', message=(messages['schedule'][0] + start.strftime("%-I:%M %p") + messages['schedule'][1] + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
         
         # if already accessed today, skip terms and language
         # @tofollow: fix this
@@ -352,7 +448,7 @@ def login():
             while Transaction.query.filter_by(token=session['token']).count() > 0:
                 session['token'] = uuid.uuid4().hex
             # create new transaction
-            trans = Transaction(gw_sn=session['gw_sn'], gw_id=session['gw_id'], ip=session['ip'], gw_address=session['gw_address'], gw_port=session['gw_port'], mac=session['mac'], apmac=session['apmac'], ssid=session['ssid'], vlanid=session['vlanid'], token=session['token'], stage="capture", device=session['device'], date_modified=str(datetime.datetime.now()))
+            trans = Transaction(gw_sn=session['gw_sn'], gw_id=session['gw_id'], ip=session['ip'], gw_address=session['gw_address'], gw_port=session['gw_port'], mac=session['mac'], apmac=session['apmac'], ssid=session['ssid'], vlanid=session['vlanid'], token=session['token'], stage="capture", device=session['device'], date_modified=str(datetime.datetime.now()), last_active=get_localzone().localize(datetime.datetime.now()))
             db.session.add(trans)
             log = AccessAuthLogs(stage="capture", gw_id=session['gw_id'], mac=session['mac'])
             db.session.add(log)
@@ -373,19 +469,59 @@ def login():
             trans.stage = "capture"
             trans.device = session['device']
             trans.date_modified = str(datetime.datetime.now())
+            trans.last_active = get_localzone().localize(datetime.datetime.now())
+            trans.start_time = None
+            trans.octets = None
             log = AccessAuthLogs(stage="capture", gw_id=session['gw_id'], mac=session['mac'])
             db.session.add(log)
             db.session.commit()
         # show homepage / index page
+        
         return render_template('index.html', send_to_access=send_to_access, lang=lang)
+
+# <------ ACTIVATE EMAIL ROUTE | @activate ------>
+
+@app.route('/verify/<username>', methods=['GET', 'POST'])
+@app.route('/verify/<username>/<lang>', methods=['GET', 'POST'])
+def verify(username,lang=None):
+    if lang:
+        messages = load_json_file(os.path.join(APP_STATIC, 'lang/' + lang +'.json'))
+    else:
+        lang = "en"
+        messages = load_json_file(os.path.join(APP_STATIC, 'lang/en.json'))
+    
+    session['title'] = messages['title']
+
+    reguser = RegisterUser.query.filter_by(username=username).first()
+    if reguser:
+        token = reguser.token
+        message = '<html><p>' + messages['email_activate_body'] + '<a href="' + portal_url_root + "activate/" + str(token) + '/' + lang + '">ACTIVATE</a></p></html>'
+        # try:
+        send_mail(subject=messages['email_activate_subject'], recipient=reguser.username, message=message)
+        
+        return render_template('logout.html', message=messages['verify'],returnLink=url_for('access'), return_text=messages['return_text'])
+    
+    return render_template('logout.html', message=messages['no_user'],returnLink=url_for('access'), return_text=messages['return_text'])
 
 
 # <------ SELECT LANGUAGE PAGE ROUTE | @lang ------>
 
 @app.route('/lang/', methods=['GET', 'POST'])
 def lang():
+    if session.get('messages'):
+        messages = session['messages']
+    else:
+        #messages = load_json_file(os.path.join(APP_STATIC, 'lang/en.json'))
+        if request.args.get('session_messages', default='', type=str) != '':
+            session['ip'] = request.args.get('ip', default='', type=str)
+            #return redirect( portal_url_root + 'login/?gw_id=' + request.args.get('gw_id', default='', type=str) + '&gw_sn=' + request.args.get('gw_sn', default='', type=str) + '&gw_address=' + request.args.get('gw_address', default='', type=str) + '&gw_port=' + request.args.get('gw_port', default='', type=str) + '&ip=' + request.args.get('ip', default='', type=str) + '&mac=' + request.args.get('mac', default='', type=str) + '&apmac=' + request.args.get('apmac', default='', type=str) + '&ssid=' + request.args.get('ssid', default='', type=str) + '&vlanid=' + request.args.get('vlanid', default='', type=str) , code=302, Response=None)
+            return redirect( portal_url_root + 'login/?gw_id=' + request.args.get('gw_id', default='', type=str) + '&gw_sn=' + request.args.get('gw_sn', default='', type=str) + '&gw_address=' + request.args.get('gw_address', default='', type=str) + '&gw_port=' + request.args.get('gw_port', default='', type=str) + '&ip=' + request.args.get('ip', default='', type=str) + '&mac=' + request.args.get('mac', default='', type=str) + '&apmac=' + request.args.get('apmac', default='', type=str) + '&ssid=' + request.args.get('ssid', default='', type=str) + '&vlanid=' + request.args.get('vlanid', default='', type=str) + "&url=http://speedtest.apollo.com.ph/" , code=302, Response=None)
+        else:
+            messages = load_json_file(os.path.join(APP_STATIC, 'lang/en.json'))
+    session['title'] = messages['title']
     if not session.get('ip'):
-        return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
+        #return redirect(url_for('login'))
+        return render_template('logout.html', message=messages['connect'], hideReturnToHome=True)
     uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
     if not uptime:
         uptime = Uptimes.query.filter_by(gw_id='DEFAULT',status=1).first()
@@ -394,7 +530,8 @@ def lang():
         start = datetime.time(*map(int, str(uptime.start_time).split(':')))
         end = datetime.time(*map(int, str(uptime.end_time).split(':')))
         if not time_in_range(start, end, tz.localize(datetime.datetime.now()).time()):
-            return render_template('logout.html', message=("Sorry, Pipol Konek is only available from " + start.strftime("%-I:%M %p") + " to " + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
+            return render_template('logout.html', message=(messages['schedule'][0] + start.strftime("%-I:%M %p") + messages['schedule'][1] + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
+    
     return render_template('lang.html')
 
 
@@ -402,8 +539,12 @@ def lang():
 
 @app.route('/terms/<lang>', methods=['GET', 'POST'])
 def terms(lang):
+    session['lang'] = lang
+    messages = load_json_file(os.path.join(APP_STATIC, 'lang/' + lang + '.json'))
+    session['title'] = messages['title']
+    session['messages'] = messages
     if not session.get('ip'):
-        return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
+        return render_template('logout.html', message=messages['connect'], hideReturnToHome=True)        
     uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
     if not uptime:
         uptime = Uptimes.query.filter_by(gw_id='DEFAULT',status=1).first()
@@ -412,7 +553,7 @@ def terms(lang):
         start = datetime.time(*map(int, str(uptime.start_time).split(':')))
         end = datetime.time(*map(int, str(uptime.end_time).split(':')))
         if not time_in_range(start, end, tz.localize(datetime.datetime.now()).time()):
-            return render_template('logout.html', message=("Sorry, Pipol Konek is only available from " + start.strftime("%-I:%M %p") + " to " + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
+            return render_template('logout.html', message=(messages['schedule'][0] + start.strftime("%-I:%M %p") + messages['schedule'][1] + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
     if lang =="en":
         resp = make_response(render_template('terms.html'))
     else:
@@ -421,6 +562,7 @@ def terms(lang):
         else:
             resp = make_response(render_template('terms.html'))
     resp.set_cookie('lang', lang)
+    
     return resp
 
 
@@ -428,11 +570,14 @@ def terms(lang):
 def getLogo(gw_id):
     logo = Logos.query.filter_by(gw_id=gw_id, status=1).first()
     if logo:
+        
         return 'uploads/' + logo.path
     else:
         default = Logos.query.filter_by(gw_id='DEFAULT', status=1).first()
         if default:
+            
             return 'uploads/' + default.path
+    
     return None
 
 
@@ -442,8 +587,18 @@ def getLogo(gw_id):
 @app.route('/access/<lang>')
 def access(lang=None):
     #redirect if not accessed through wifi
+ 
+    if session.get('lang'):
+        lang = session['lang']
+    if session.get('messages'):
+        messages = session['messages']
+    else:
+        messages = load_json_file(os.path.join(APP_STATIC, 'lang/en.json'))
+
+    session['title'] = messages['title']
+
     if not session.get('ip'):
-        return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
+        return render_template('logout.html', message=messages['connect'], hideReturnToHome=True) 
     
     #redirect if portal downtime
     uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
@@ -454,14 +609,22 @@ def access(lang=None):
         start = datetime.time(*map(int, str(uptime.start_time).split(':')))
         end = datetime.time(*map(int, str(uptime.end_time).split(':')))
         if not time_in_range(start, end, tz.localize(datetime.datetime.now()).time()):
-            return render_template('logout.html', message=("Sorry, Pipol Konek is only available from " + start.strftime("%-I:%M %p") + " to " + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
+            return render_template('logout.html', message=(messages['schedule'][0] + start.strftime("%-I:%M %p") + messages['schedule'][1] + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
     
     #get dynamic data limits, @hardcoded default values
-    limit1 = "{0:.0f}".format(getLimit(session['gw_id'], 1, 'dd', 50000000)/1000000)
-    limit2 = "{0:.0f}".format(getLimit(session['gw_id'], 2, 'dd', 100000000)/1000000)
-    limit3 = "{0:.0f}".format(getLimit(session['gw_id'], 3, 'dd', 300000000)/1000000)
+    limit1 = getLimit(session['gw_id'], 1, 'dd', 50000000)/10000000000
+    limit2 = getLimit(session['gw_id'], 2, 'dd', 100000000)/1000000000
+    limit3 = getLimit(session['gw_id'], 3, 'dd', 300000000)/1000000000
+
+    def format_limit(limit):
+        if limit >= 1000000:
+            return "{0:.0f} TB".format(limit/1000000)
+        elif limit >= 1000:
+            return "{0:.0f} GB".format(limit/1000)
+        else:
+            return "{0:.0f} MB".format(limit)
     
-    return render_template('access.html', lang=lang, limit1=limit1, limit2=limit2, limit3=limit3, logo_path=getLogo(session['gw_id']))
+    return render_template('access.html', lang=lang, limit1=format_limit(limit1), limit2=format_limit(limit2), limit3=format_limit(limit3), logo_path=getLogo(session['gw_id']))
 
 
 # <------ REGISTERED ACCESS LOGIN ROUTE | @signin @regLogin------>
@@ -470,8 +633,15 @@ def access(lang=None):
 @app.route('/login-reg/<lang>')
 def loginReg(lang=None):
     #redirect if not accessed through wifi
+    if session.get('lang'):
+        lang = session['lang']
+    if session.get('messages'):
+        messages = session['messages']
+    else:
+        messages = load_json_file(os.path.join(APP_STATIC, 'lang/en.json'))
+    session['title'] = messages['title']
     if not session.get('ip'):
-        return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
+        return render_template('logout.html', message=messages['connect'], hideReturnToHome=True) 
     
     #redirect if portal downtime
     uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
@@ -482,36 +652,102 @@ def loginReg(lang=None):
         start = datetime.time(*map(int, str(uptime.start_time).split(':')))
         end = datetime.time(*map(int, str(uptime.end_time).split(':')))
         if not time_in_range(start, end, tz.localize(datetime.datetime.now()).time()):
-            return render_template('logout.html', message=("Sorry, Pipol Konek is only available from " + start.strftime("%-I:%M %p") + " to " + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
+            return render_template('logout.html', message=(messages['schedule'][0] + start.strftime("%-I:%M %p") + messages['schedule'][1] + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
     
     return render_template('login.html', lang=lang, logo_path=getLogo(session['gw_id']))
 
 
 # <------ AUTHENTICATION ROUTE | @auth ------->
 
-@app.route('/auth/')
+@app.route('/wifidog/auth', methods=['GET','POST'], strict_slashes=False)
+@app.route('/auth', methods=['GET','POST'], strict_slashes=False)
 def auth():
     token_n = request.args.get('token', default='', type=str)
     stage_n = request.args.get('stage', default='', type=str)
-    incoming_n = request.args.get('incoming', default='', type=int)
-    outgoing_n = request.args.get('outgoing', default='', type=int)
+    incoming_n = request.args.get('incoming', default=0, type=int)
+    outgoing_n = request.args.get('outgoing', default=0, type=int)
     trans = Transaction.query.filter_by(token=token_n).first()
     srv = Client(server=pyradServer, secret=b"ap0ll0", dict=Dictionary("dictionary"))
-    acct_req = srv.CreateAcctPacket(User_Name=trans.uname)
-    acct_req["Framed-MTU"] = setSessionIdAlive(trans.uname)
+    try:
+        acct_req = srv.CreateAcctPacket(User_Name=trans.uname)
+    except:
+        return "Auth: 0"
+    acct_req["Callback-Id"] = setSessionIdAlive(trans.mac)
     acct_req["NAS-Identifier"] = trans.gw_id
     acct_req["Framed-IP-Address"] = trans.ip
     acct_req["Login-LAT-Service"] = trans.package
     acct_req["Login-LAT-Node"] = trans.mac
     acct_req["Connect-Info"] = trans.device
 
+    if not trans.start_time:
+        trans.start_time = get_localzone().localize(datetime.datetime.now())
+        db.session.commit()
+
+    #octets = trans.octets if trans.octets else 0
+    octets = 0
+
     # Stop connection during logout stage and update database
     if stage_n == "logout":
         trans.stage = "logout"
         trans.date_modified = str(datetime.datetime.now())
+        trans.last_active = get_localzone().localize(datetime.datetime.now())
+        trans.octets = incoming_n + outgoing_n
         db.session.commit()
-        acct_req["Acct-Input-Octets"] = incoming_n
-        acct_req["Acct-Output-Octets"] = outgoing_n
+        acct_req["Called-Station-Id"] = str(incoming_n)
+        acct_req["Calling-Station-Id"] = str(outgoing_n)
+        acct_req["Acct-Status-Type"] = "Stop"
+        acct_req["Acct-Terminate-Cause"] = "Host-Request"
+        try:
+            reply = srv.SendPacket(acct_req)
+        except:
+            pass
+
+        if trans.package == "One-Click Login":
+            device = Devices.query.filter_by(mac=trans.mac).first()
+            new_record = incoming_n + outgoing_n
+            if new_record >= device.last_record:
+                device.free_data = (device.free_data + (new_record - device.last_record))
+                device.month_data = (device.month_data + (new_record - device.last_record))
+                #device.month_data = (device.free_data + (new_record - device.last_record))
+            else:
+                pass
+            device.last_record = new_record
+            device.last_active = str(datetime.datetime.now())
+            db.session.commit()
+
+        elif trans.package == "Register":
+            user = Registered_Users.query.filter_by(uname=trans.uname).first()
+            new_record = incoming_n + outgoing_n
+            if new_record >= user.last_record:
+                user.registered_data = (user.registered_data + (new_record - user.last_record))
+                user.month_data = (user.month_data + (new_record - user.last_record))
+            else:
+                pass
+            user.last_record = new_record
+            user.last_active = str(datetime.datetime.now())
+            db.session.commit()
+
+        elif trans.package == "Certificate":
+            device = CertifiedDevices.query.filter_by(mac=trans.mac).first()
+            new_record = incoming_n + outgoing_n
+            if new_record >= user.last_record:
+                device.cert_data = (device.cert_data + (new_record - device.last_record))
+                device.month_data = (device.month_data + (new_record - device.last_record))
+            else:
+                pass
+            device.last_record = new_record
+            device.last_active = str(datetime.datetime.now())
+            db.session.commit()
+        
+        trans.stage = "logout"
+        trans.date_modified = str(datetime.datetime.now())
+        trans.last_active = get_localzone().localize(datetime.datetime.now())
+        db.session.commit()
+        return "Auth: 0"
+
+    if trans.stage == "logout" or trans.stage == "end_email_validation" or trans.stage == "end_reset_password":
+        acct_req["Called-Station-Id"] = str(incoming_n)
+        acct_req["Calling-Station-Id"] = str(outgoing_n)
         acct_req["Acct-Status-Type"] = "Stop"
         acct_req["Acct-Terminate-Cause"] = "Host-Request"
         try:
@@ -520,8 +756,57 @@ def auth():
             pass
         return "Auth: 0"
 
-    if trans.stage == "logout" or trans.stage == "end_email_validation" or trans.stage == "end_reset_password":
-        return "Auth: 0"
+    # <------ Boot out dormant entries ------>
+    if stage_n == "counters" and not (trans.start_time == None or trans.start_time == ''):
+        elapsed_time = get_localzone().localize(datetime.datetime.now()) - trans.start_time
+        
+        if incoming_n + outgoing_n < 1.0:
+            if elapsed_time >= datetime.timedelta(minutes=15):
+                trans.stage = "logout"
+                trans.date_modified = str(datetime.datetime.now())
+                trans.last_active = get_localzone().localize(datetime.datetime.now())
+                db.session.commit()
+
+                acct_req["Called-Station-Id"] = str(incoming_n)
+                acct_req["Calling-Station-Id"] = str(outgoing_n)
+                acct_req["Acct-Status-Type"] = "Stop"
+                acct_req["Acct-Terminate-Cause"] = "Host-Request"
+                try:
+                    reply = srv.SendPacket(acct_req)
+                except:
+                    pass
+                return "Auth: 0"
+
+        if incoming_n + outgoing_n == trans.octets:
+            if elapsed_time >= datetime.timedelta(hours=1):
+                trans.stage = "logout"
+                trans.date_modified = str(datetime.datetime.now())
+                trans.last_active = get_localzone().localize(datetime.datetime.now())
+                db.session.commit()
+                acct_req["Called-Station-Id"] = str(incoming_n)
+                acct_req["Calling-Station-Id"] = str(outgoing_n)
+                acct_req["Acct-Status-Type"] = "Stop"
+                acct_req["Acct-Terminate-Cause"] = "Host-Request"
+                try:
+                    reply = srv.SendPacket(acct_req)
+                except:
+                    pass
+                return "Auth: 0"
+
+        if elapsed_time >= datetime.timedelta(hours=24):
+            trans.stage = "logout"
+            trans.date_modified = str(datetime.datetime.now())
+            trans.last_active = get_localzone().localize(datetime.datetime.now())
+            db.session.commit()
+            acct_req["Called-Station-Id"] = str(incoming_n)
+            acct_req["Calling-Station-Id"] = str(outgoing_n)
+            acct_req["Acct-Status-Type"] = "Stop"
+            acct_req["Acct-Terminate-Cause"] = "Host-Request"
+            try:
+                reply = srv.SendPacket(acct_req)
+            except:
+                pass
+            return "Auth: 0"
 
     # <------ AUTHENTICATION FOR EMAIL VALIDATION | @authEmail ------>
 
@@ -530,9 +815,10 @@ def auth():
         if incoming_n + outgoing_n > 20000000:
             trans.stage = "end_email_validation"
             trans.date_modified = str(datetime.datetime.now())
+            trans.last_active = get_localzone().localize(datetime.datetime.now())
             db.session.commit()
-            acct_req["Acct-Input-Octets"] = incoming_n
-            acct_req["Acct-Output-Octets"] = outgoing_n
+            acct_req["Called-Station-Id"] = str(incoming_n)
+            acct_req["Calling-Station-Id"] = str(outgoing_n)
             acct_req["Acct-Status-Type"] = "Stop"
             acct_req["Acct-Terminate-Cause"] = "Host-Request"
             try:
@@ -546,21 +832,39 @@ def auth():
         if elapsed_time <= datetime.timedelta(minutes=5):
             trans.stage = "start_email_validation"
             db.session.commit()
+            acct_req["Called-Station-Id"] = str(incoming_n)
+            acct_req["Calling-Station-Id"] = str(outgoing_n)
+            acct_req["Acct-Status-Type"] = "Interim-Update"
+            if incoming_n + outgoing_n > octets:
+                try:
+                    reply = srv.SendPacket(acct_req)
+                except pyrad.client.Timeout:
+                    message = "RADIUS server does not reply"
+                    
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
+                except socket.error as error:
+                    message = "Network error: " + error[1]
+                    
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
+            
             return "Auth: 1"
         else:
             # end if exceeded
             trans.stage = "end_email_validation"
             trans.date_modified = str(datetime.datetime.now())
+            trans.last_active = get_localzone().localize(datetime.datetime.now())
             db.session.commit()
-            acct_req["Acct-Input-Octets"] = incoming_n
-            acct_req["Acct-Output-Octets"] = outgoing_n
+            acct_req["Called-Station-Id"] = str(incoming_n)
+            acct_req["Calling-Station-Id"] = str(outgoing_n)
             acct_req["Acct-Status-Type"] = "Stop"
             acct_req["Acct-Terminate-Cause"] = "Host-Request"
             try:
                 reply = srv.SendPacket(acct_req)
             except:
                 pass
+            
             return "Auth: 0"
+        
         return "Auth: 1"
 
         # <------ AUTHENTICATION FOR PASSWORD RESET | @authPass ------>
@@ -570,15 +874,17 @@ def auth():
         if incoming_n + outgoing_n > 20000000:
             trans.stage = "end_reset_password"
             trans.date_modified = str(datetime.datetime.now())
+            trans.last_active = get_localzone().localize(datetime.datetime.now())
             db.session.commit()
-            acct_req["Acct-Input-Octets"] = incoming_n
-            acct_req["Acct-Output-Octets"] = outgoing_n
+            acct_req["Called-Station-Id"] = str(incoming_n)
+            acct_req["Calling-Station-Id"] = str(outgoing_n)
             acct_req["Acct-Status-Type"] = "Stop"
             acct_req["Acct-Terminate-Cause"] = "Host-Request"
             try:
                 reply = srv.SendPacket(acct_req)
             except:
                 pass
+            
             return "Auth: 0"
         # limit to 10 minutes
         last_modified = datetime.datetime.strptime(trans.date_modified, '%Y-%m-%d %H:%M:%S.%f')
@@ -586,202 +892,302 @@ def auth():
         if elapsed_time <= datetime.timedelta(minutes=5):
             trans.stage = "reset_password"
             db.session.commit()
+
+            acct_req["Called-Station-Id"] = str(incoming_n)
+            acct_req["Calling-Station-Id"] = str(outgoing_n)
+            acct_req["Acct-Status-Type"] = "Interim-Update"
+            if incoming_n + outgoing_n > octets:
+                try:
+                    reply = srv.SendPacket(acct_req)
+                except pyrad.client.Timeout:
+                    message = "RADIUS server does not reply"
+                    
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
+                except socket.error as error:
+                    message = "Network error: " + error[1]
+                    
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
+            
             return "Auth: 1"
         else:
             # end if exceeded
             trans.stage = "end_reset_password"
             trans.date_modified = str(datetime.datetime.now())
+            trans.last_active = get_localzone().localize(datetime.datetime.now())
             db.session.commit()
-            acct_req["Acct-Input-Octets"] = incoming_n
-            acct_req["Acct-Output-Octets"] = outgoing_n
+            acct_req["Called-Station-Id"] = str(incoming_n)
+            acct_req["Calling-Station-Id"] = str(outgoing_n)
             acct_req["Acct-Status-Type"] = "Stop"
             acct_req["Acct-Terminate-Cause"] = "Host-Request"
             try:
                 reply = srv.SendPacket(acct_req)
             except:
                 pass
+            
             return "Auth: 0"
+        
         return "Auth: 1"
 
-    # <------ AUTHENTICATION FOR REGISTERED ACCESS | @authReg ------>
+    # <------ AUTHENTICATION FOR FREE ACCESS | @authFree ------>
 
-    if trans.package == "Registered":
-        daily_limit = getLimit(trans.gw_id, 2, 'dd', 100000000)
-        month_limit = getLimit(trans.gw_id, 2, 'mm', 2000000000)
-        user = Registered_Users.query.filter_by(uname=trans.uname).first()
-        new_record = incoming_n + outgoing_n
-        if new_record < user.last_record:
-            user.last_record = new_record
-        last_active_date = datetime.datetime.strptime(user.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
-        if (user.registered_data + ((incoming_n + outgoing_n) - user.last_record)) >= daily_limit:
-            acct_req["Acct-Input-Octets"] = incoming_n
-            acct_req["Acct-Output-Octets"] = outgoing_n
+    if trans.package == "One-Click Login":            
+        device = Devices.query.filter_by(mac=trans.mac).first()
+        daily_limit = getLimit(trans.gw_id, 1, 'dd', 50000000)
+        month_limit = getLimit(trans.gw_id, 1, 'mm', 1000000000)
+        new_record = incoming_n + outgoing_n        
+        # if device.last_record == None:
+        #     device.last_record = 0
+        try:
+            last_active_date = datetime.datetime.strptime(device.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
+        except:
+            last_active_date = datetime.datetime.strptime(device.last_active, '%Y-%m-%d %H:%M:%S').date()
+
+        if new_record == 0:
+            device.last_record = 0
+            db.session.commit()
+
+        last_record = device.last_record
+
+        # day computations
+        if not last_active_date == datetime.date.today():
+            consumed_day = new_record
+            device.last_record = new_record
+        else:
+            if new_record >= device.last_record:
+                consumed_day = device.free_data + (new_record - last_record)
+                device.last_record = new_record
+            else:
+                consumed_day = device.free_data
+                device.last_record = consumed_day
+        
+        # month computations
+        if not last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
+            consumed_month = new_record
+            device.last_record = new_record
+        else:
+            if new_record >= device.last_record:
+                consumed_month = device.month_data + (new_record - last_record)
+                device.last_record = new_record
+            else:
+                consumed_month = device.month_data
+
+        if consumed_day >= daily_limit or consumed_month >= month_limit:
+            acct_req["Called-Station-Id"] = str(incoming_n)
+            acct_req["Calling-Station-Id"] = str(outgoing_n)
             acct_req["Acct-Status-Type"] = "Stop"
             acct_req["Acct-Terminate-Cause"] = "Host-Request"
             try:
                 reply = srv.SendPacket(acct_req)
             except pyrad.client.Timeout:
-                message = "RADIUS server does not reply"
+                message = "RADIUS server does not reply"                
                 return render_template("logout.html", message=message, hideReturnToHome=True)
             except socket.error as error:
-                message = "Network error: " + error[1]
+                message = "Network error: " + error[1]                
                 return render_template("logout.html", message=message, hideReturnToHome=True)
-            if last_active_date == datetime.date.today():
-                user.registered_data = (user.registered_data + (new_record - user.last_record))
-            else:
-                user.registered_data = 0
-            if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
-                user.month_data = (user.month_data + (new_record - user.last_record))
-            else:
-                user.month_data = 0
-            user.last_record = 0
+
+            device.free_data = consumed_day
+            device.month_data = consumed_month
+            device.last_active = str(datetime.datetime.now())
+            trans.stage = "logout"
+            trans.date_modified = str(datetime.datetime.now())
+            trans.last_active = get_localzone().localize(datetime.datetime.now())
             db.session.commit()
+
             return "Auth: 0"
         else:
-            acct_req["Acct-Input-Octets"] = incoming_n
-            acct_req["Acct-Output-Octets"] = outgoing_n
+            acct_req["Called-Station-Id"] = str(incoming_n)
+            acct_req["Calling-Station-Id"] = str(outgoing_n)
             acct_req["Acct-Status-Type"] = "Interim-Update"
+            if incoming_n + outgoing_n > octets:
+                try:
+                    reply = srv.SendPacket(acct_req)
+                except pyrad.client.Timeout:
+                    message = "RADIUS server does not reply"
+                    
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
+                except socket.error as error:
+                    message = "Network error: " + error[1]
+                    
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
+
+        device.free_data = consumed_day
+        device.month_data = consumed_month
+        device.last_active = str(datetime.datetime.now())
+        db.session.commit()
+
+    # <------ AUTHENTICATION FOR REGISTERED ACCESS | @authReg ------>
+
+    elif trans.package == "Register":
+        daily_limit = getLimit(trans.gw_id, 2, 'dd', 100000000)
+        month_limit = getLimit(trans.gw_id, 2, 'mm', 2000000000)
+        user = Registered_Users.query.filter_by(uname=trans.uname).first()
+        new_record = incoming_n + outgoing_n
+        try:
+            last_active_date = datetime.datetime.strptime(user.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
+        except:
+            last_active_date = datetime.datetime.strptime(user.last_active, '%Y-%m-%d %H:%M:%S').date()
+
+        if new_record == 0:
+            user.last_record = 0
+            db.session.commit()
+
+        last_record = user.last_record
+
+        # day computations
+        if not last_active_date == datetime.date.today():
+            consumed_day = new_record
+            user.last_record = new_record
+        else:
+            if new_record >= user.last_record:
+                consumed_day = user.registered_data + (new_record - last_record)
+                user.last_record = new_record
+            else:
+                consumed_day = user.registered_data
+        
+        # month computations
+        if not last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
+            consumed_month = new_record
+            user.last_record = new_record
+        else:
+            if new_record >= user.last_record:
+                consumed_month = user.month_data + (new_record - last_record)
+                user.last_record = new_record
+            else:
+                consumed_month = user.month_data
+
+        if consumed_day >= daily_limit or consumed_month >= month_limit:
+            acct_req["Called-Station-Id"] = str(incoming_n)
+            acct_req["Calling-Station-Id"] = str(outgoing_n)
+            acct_req["Acct-Status-Type"] = "Stop"
+            acct_req["Acct-Terminate-Cause"] = "Host-Request"
             try:
                 reply = srv.SendPacket(acct_req)
             except pyrad.client.Timeout:
-                message = "RADIUS server does not reply"
+                message = "RADIUS server does not reply"                
                 return render_template("logout.html", message=message, hideReturnToHome=True)
             except socket.error as error:
-                message = "Network error: " + error[1]
+                message = "Network error: " + error[1]                
                 return render_template("logout.html", message=message, hideReturnToHome=True)
-            if last_active_date == datetime.date.today():
-                user.registered_data = (user.registered_data + (new_record - user.last_record))
-            else:
-                user.registered_data = 0
-            if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
-                user.month_data = (user.month_data + (new_record - user.last_record))
-            else:
-                user.month_data = 0
-            user.last_record = new_record
-            user.last_active = str(datetime.datetime.now())
+
+            user.registered_data = consumed_day
+            user.month_data = consumed_month
+            trans.stage = "logout"
+            trans.date_modified = str(datetime.datetime.now())
+            trans.last_active = get_localzone().localize(datetime.datetime.now())
             db.session.commit()
-    else:
 
-        # <------ AUTHENTICATION FOR FREE ACCESS | @authFree ------>
+            return "Auth: 0"
+        else:
+            acct_req["Called-Station-Id"] = str(incoming_n)
+            acct_req["Calling-Station-Id"] = str(outgoing_n)
+            acct_req["Acct-Status-Type"] = "Interim-Update"
+            if incoming_n + outgoing_n > octets:
+                try:
+                    reply = srv.SendPacket(acct_req)
+                except pyrad.client.Timeout:
+                    message = "RADIUS server does not reply"
+                    
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
+                except socket.error as error:
+                    message = "Network error: " + error[1]
+                    
+                    return render_template("logout.html", message=message, hideReturnToHome=True)
 
-        if trans.package == "One-Click":            
-            device = Devices.query.filter_by(mac=trans.mac).first()
-            daily_limit = getLimit(trans.gw_id, 1, 'dd', 50000000)
-            month_limit = getLimit(trans.gw_id, 1, 'mm', 1000000000)
-            new_record = incoming_n + outgoing_n
-            if new_record < device.last_record:
-                device.last_record = new_record
+        user.registered_data = consumed_day
+        user.month_data = consumed_month
+        user.last_active = str(datetime.datetime.now())
+        db.session.commit()
+
+
+    elif trans.package == "Certificate":
+        device = CertifiedDevices.query.filter_by(mac=trans.mac).first()
+        daily_limit = getLimit(trans.gw_id, 3, 'dd', 300000000)
+        month_limit = getLimit(trans.gw_id, 3, 'mm', 3000000000)
+        new_record = incoming_n + outgoing_n
+        try:
             last_active_date = datetime.datetime.strptime(device.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
-            if (device.free_data + (incoming_n + outgoing_n - device.last_record)) >= daily_limit:
-                acct_req["Acct-Input-Octets"] = incoming_n
-                acct_req["Acct-Output-Octets"] = outgoing_n
-                acct_req["Acct-Status-Type"] = "Stop"
-                acct_req["Acct-Terminate-Cause"] = "Host-Request"
-                try:
-                    reply = srv.SendPacket(acct_req)
-                except pyrad.client.Timeout:
-                    message = "RADIUS server does not reply"
-                    return render_template("logout.html", message=message, hideReturnToHome=True)
-                except socket.error as error:
-                    message = "Network error: " + error[1]
-                    return render_template("logout.html", message=message, hideReturnToHome=True)
-                if last_active_date == datetime.date.today():
-                    device.free_data = (device.free_data + (new_record - device.last_record))
-                else:
-                    device.free_data = 101
-                if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
-                    device.month_data = (device.month_data + (new_record - device.last_record))
-                else:
-                    device.month_data = 0
-                device.last_record = 0
-                db.session.commit()
-                return "Auth: 0"
-            else:
-                acct_req["Acct-Input-Octets"] = incoming_n
-                acct_req["Acct-Output-Octets"] = outgoing_n
-                acct_req["Acct-Status-Type"] = "Interim-Update"
-                try:
-                    reply = srv.SendPacket(acct_req)
-                except pyrad.client.Timeout:
-                    message = "RADIUS server does not reply"
-                    return render_template("logout.html", message=message, hideReturnToHome=True)
-                except socket.error as error:
-                    message = "Network error: " + error[1]
-                    return render_template("logout.html", message=message, hideReturnToHome=True)
-                if last_active_date == datetime.date.today():
-                    device.free_data = (device.free_data + (new_record - device.last_record))
-                else:
-                    device.free_data = 0
-                if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
-                    device.month_data = (device.month_data + (new_record - device.last_record))
-                else:
-                    device.month_data = 0
+        except:
+            last_active_date = datetime.datetime.strptime(device.last_active, '%Y-%m-%d %H:%M:%S').date()
+
+        if new_record == 0:
+            device.last_record = 0
+            db.session.commit()
+            
+        last_record = device.last_record
+
+        # day computations
+        if not last_active_date == datetime.date.today():
+            consumed_day = new_record
+            device.last_record = new_record
+        else:
+            if new_record >= device.last_record:
+                consumed_day = device.cert_data + (new_record - last_record)
                 device.last_record = new_record
-                device.last_active = str(datetime.datetime.now())
-                db.session.commit()
+            else:
+                consumed_day = device.cert_data
         
-        # <------ AUTHENTICATION FOR CERTIFIED ACCESS | @authCert ------>
-
-        if trans.package == "Certified":
-            device = CertifiedDevices.query.filter_by(mac=trans.mac).first()
-            daily_limit = getLimit(trans.gw_id, 3, 'dd', 300000000)
-            month_limit = getLimit(trans.gw_id, 3, 'mm', 3000000000)
-            new_record = incoming_n + outgoing_n
-            if new_record < device.last_record:
+        # month computations
+        if not last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
+            consumed_month = new_record
+            device.last_record = new_record
+        else:
+            if new_record >= device.last_record:
+                consumed_month = device.month_data + (new_record - last_record)
                 device.last_record = new_record
-            last_active_date = datetime.datetime.strptime(device.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
-            if (device.cert_data + (incoming_n + outgoing_n - device.last_record)) >= daily_limit:
-                acct_req["Acct-Input-Octets"] = incoming_n
-                acct_req["Acct-Output-Octets"] = outgoing_n
-                acct_req["Acct-Status-Type"] = "Stop"
-                acct_req["Acct-Terminate-Cause"] = "Host-Request"
-                try:
-                    reply = srv.SendPacket(acct_req)
-                except pyrad.client.Timeout:
-                    message = "RADIUS server does not reply"
-                    return render_template("logout.html", message=message, hideReturnToHome=True)
-                except socket.error as error:
-                    message = "Network error: " + error[1]
-                    return render_template("logout.html", message=message, hideReturnToHome=True)
-                if last_active_date == datetime.date.today():
-                    device.cert_data = (device.cert_data + (new_record - device.last_record))
-                else:
-                    device.cert_data = 101
-                if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
-                    device.month_data = (device.month_data + (new_record - device.last_record))
-                else:
-                    device.month_data = 0
-                device.last_record = 0
-                db.session.commit()
-                return "Auth: 0"
             else:
-                acct_req["Acct-Input-Octets"] = incoming_n
-                acct_req["Acct-Output-Octets"] = outgoing_n
-                acct_req["Acct-Status-Type"] = "Interim-Update"
+                consumed_month = device.month_data
+
+        if consumed_day >= daily_limit or consumed_month >= month_limit:
+            acct_req["Called-Station-Id"] = str(incoming_n)
+            acct_req["Calling-Station-Id"] = str(outgoing_n)
+            acct_req["Acct-Status-Type"] = "Stop"
+            acct_req["Acct-Terminate-Cause"] = "Host-Request"
+            try:
+                reply = srv.SendPacket(acct_req)
+            except pyrad.client.Timeout:
+                message = "RADIUS server does not reply"                
+                return render_template("logout.html", message=message, hideReturnToHome=True)
+            except socket.error as error:
+                message = "Network error: " + error[1]                
+                return render_template("logout.html", message=message, hideReturnToHome=True)
+
+            device.cert_data = consumed_day
+            device.month_data = consumed_month
+            device.last_active = str(datetime.datetime.now())
+            trans.stage = "logout"
+            trans.date_modified = str(datetime.datetime.now())
+            trans.last_active = get_localzone().localize(datetime.datetime.now())
+            db.session.commit()
+
+            return "Auth: 0"
+        else:
+            acct_req["Called-Station-Id"] = str(incoming_n)
+            acct_req["Calling-Station-Id"] = str(outgoing_n)
+            acct_req["Acct-Status-Type"] = "Interim-Update"
+            if incoming_n + outgoing_n > octets:
                 try:
                     reply = srv.SendPacket(acct_req)
                 except pyrad.client.Timeout:
                     message = "RADIUS server does not reply"
+                    
                     return render_template("logout.html", message=message, hideReturnToHome=True)
                 except socket.error as error:
                     message = "Network error: " + error[1]
+                    
                     return render_template("logout.html", message=message, hideReturnToHome=True)
-                if last_active_date == datetime.date.today():
-                    device.cert_data = (device.cert_data + (new_record - device.last_record))
-                else:
-                    device.cert_data = 0
-                if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
-                    device.month_data = (device.month_data + (new_record - device.last_record))
-                else:
-                    device.month_data = 0
-                device.last_record = new_record
-                device.last_active = str(datetime.datetime.now())
-                db.session.commit()
+
+        device.cert_data = consumed_day
+        device.month_data = consumed_month
+        device.last_active = str(datetime.datetime.now())
+        db.session.commit()
 
     # authentication success, update database
     trans.stage = stage_n
     trans.date_modified = str(datetime.datetime.now())
+    trans.last_active = get_localzone().localize(datetime.datetime.now())
+    trans.octets = incoming_n + outgoing_n
     db.session.commit()
+    
     return "Auth: 1"
 
 
@@ -790,11 +1196,14 @@ def auth():
 def getAnnouncement(gw_id):
     announcement = Announcements.query.filter_by(gw_id=gw_id, status=1).first()
     if announcement:
+        
         return 'uploads/' + announcement.path
     else:
         default = Announcements.query.filter_by(gw_id='DEFAULT', status=1).first()
         if default:
+            
             return 'uploads/' + default.path
+    
     return None
 
 def getAnnouncements(gw_id):
@@ -810,6 +1219,7 @@ def getAnnouncements(gw_id):
     announcement = Announcements.query.filter_by(gw_id=gw_id, status=1).first()
     if announcement:
         announcements.append('uploads/' + announcement.path)
+    
     return announcements
 
 
@@ -817,87 +1227,120 @@ def getAnnouncements(gw_id):
 
 @app.route('/portal/')
 def portal():
+    if request.headers.get('isHTTPS') == "no":
+        path = str(request.url).replace(str(request.url_root),portal_url_root,1)
+        #print(path)
+        return render_template('redirect.html', path=path)
+    messages = {}
+    if session.get('lang'):
+        lang = session['lang']
+    else:
+        lang = 'en'
+    if session.get('messages'):
+        messages = session['messages']
+    else:
+        messages = load_json_file(os.path.join(APP_STATIC, 'lang/en.json'))
+    session['title'] = messages['title']
+    if not session.get('ip'):
+        return render_template('logout.html', message=messages['connect'], hideReturnToHome=True) 
     if not session.get('type'):
         today = datetime.date.today().strftime('%Y-%m-%d')
         trans = Transaction.query.filter_by(mac=session['mac']).filter_by(device=session['device']).filter(Transaction.date_modified.like(today + '%')).first()
         if trans:
             session["type"] = trans.package
         else:
-            return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
+            return render_template('logout.html', message=messages['connect'], hideReturnToHome=True)
     trans = Transaction.query.filter_by(token=session['token']).first()
     # Splash page/message for authenticated users for email validation
-    if trans and trans.stage == 'start_email_validation':
-        return render_template('logout.html',message='Check your email inbox or spam folder to verify. You are given five (5) minutes of internet connection to activate your email.', hideReturnToHome=True) 
-    if trans and trans.stage == 'reset_password':
-        return render_template("logout.html", message="Check your email inbox or spam folder for the password reset link. You are given five (5) minutes of internet connection to reset your password.", hideReturnToHome=True)
+    if trans and (trans.stage == 'start_email_validation' or trans.stage == 'pending_confirmation'):        
+        return render_template('logout.html',message=messages['email_validation'], hideReturnToHome=True) 
+    if trans and trans.stage == 'reset_password':        
+        return render_template("logout.html", message=messages['pw_reset'], hideReturnToHome=True)
+
+    _default_url = PortalRedirectLinks.query.filter_by(gw_id='DEFAULT', status=1).first()
+    default = 'http://speedtest.apollo.com.ph/' if _default_url == None else _default_url.url
+    gw_url = PortalRedirectLinks.query.filter_by(gw_id=session['gw_id'], status=1).first()    
+    path = default if gw_url == None else gw_url.url
+        
+    def format_limit(limit):
+        if limit >= 1000000:
+            return "{0:.2f} TB".format(limit/1000000)
+        elif limit >= 1000:
+            return "{0:.2f} GB".format(limit/1000)
+        else:
+            return "{0:.2f} MB".format(limit)
+
     # Calculate Usage and Limits for Free Access
-    if session["type"] == "One-Click":
+    if session["type"] == "One-Click Login":
         display_type = "Level One"
         daily_limit = getLimit(session['gw_id'], 1, 'dd', 50000000)
         month_limit = getLimit(session['gw_id'], 1, 'mm', 1000000000)
         device = Devices.query.filter_by(mac=session["mac"]).first()
-        daily_used = "{0:.2f}".format(device.free_data / 1000000)
-        monthly_used = "{0:.2f}".format(device.month_data / 1000000)
+        daily_used = format_limit(device.free_data / 1000000)
+        monthly_used = format_limit(device.month_data / 1000000)
         day_rem = daily_limit - device.free_data if daily_limit - device.free_data >= 0 else 0
         month_rem = month_limit - device.month_data if month_limit - device.month_data >= 0 else 0
-        daily_remaining = "{0:.2f}".format(day_rem / 1000000)
-        monthly_remaining = "{0:.2f}".format(month_rem / 1000000)
+        daily_remaining = format_limit(day_rem / 1000000)
+        monthly_remaining = format_limit(month_rem / 1000000)
     else:
         # Calculate Usage and Limits for Registered Access
-        if session["type"] == "Registered":
+        if session["type"] == "Register":
             display_type = "Level Two"
             daily_limit = getLimit(session['gw_id'], 2, 'dd', 100000000)
             month_limit = getLimit(session['gw_id'], 2, 'mm', 2000000000)
             user = Registered_Users.query.filter_by(uname=session["uname"]).first()
-            daily_used = "{0:.2f}".format(user.registered_data / 1000000)
-            monthly_used = "{0:.2f}".format(user.month_data / 1000000)
+            daily_used = format_limit(user.registered_data / 1000000)
+            monthly_used = format_limit(user.month_data / 1000000)
             day_rem = daily_limit - user.registered_data if daily_limit - user.registered_data >= 0 else 0
             month_rem = month_limit - user.month_data if month_limit - user.month_data >= 0 else 0
-            daily_remaining = "{0:.2f}".format((day_rem) / 1000000)
-            monthly_remaining = "{0:.2f}".format((month_rem) / 1000000)
+            daily_remaining = format_limit(day_rem / 1000000)
+            monthly_remaining = format_limit(month_rem / 1000000)
         else:
             # Certified Access computations here
             display_type = "Level Three"
             daily_limit = getLimit(session['gw_id'], 3, 'dd', 300000000)
             month_limit = getLimit(session['gw_id'], 3, 'mm', 3000000000)
             device = CertifiedDevices.query.filter_by(mac=session["mac"]).first()
-            daily_used = "{0:.2f}".format(device.cert_data / 1000000)
-            monthly_used = "{0:.2f}".format(device.month_data / 1000000)
+            daily_used = format_limit(device.cert_data / 1000000)
+            monthly_used = format_limit(device.month_data / 1000000)
             day_rem = daily_limit - device.cert_data if daily_limit - device.cert_data >= 0 else 0
             month_rem = month_limit - device.month_data if month_limit - device.month_data >= 0 else 0
-            daily_remaining = "{0:.2f}".format(day_rem / 1000000)
-            monthly_remaining = "{0:.2f}".format(month_rem / 1000000)
-    ddd_limit = "{0:.2f}".format(daily_limit/1000000000)
-    mmm_limit = "{0:.2f}".format(month_limit/1000000000)
-    return render_template('portal.html', daily_used=daily_used, monthly_used=monthly_used, daily_remaining=daily_remaining, monthly_remaining=monthly_remaining, daily_limit=ddd_limit, monthly_limit=mmm_limit, announcements=getAnnouncements(session['gw_id']), display_type=display_type)
+            daily_remaining = format_limit(day_rem / 1000000)
+            monthly_remaining = format_limit(month_rem / 1000000)
+    ddd_limit = format_limit(daily_limit/1000000)
+    mmm_limit = format_limit(month_limit/1000000)
+    
+    return render_template('portal.html', lang=lang, daily_used=daily_used, monthly_used=monthly_used, daily_remaining=daily_remaining, monthly_remaining=monthly_remaining, daily_limit=ddd_limit, monthly_limit=mmm_limit, announcements=getAnnouncements(session['gw_id']), display_type=display_type, path=path)
 
 
 # <------ REGISTERED MEMBER SIGN UP FORM | @regForm ------>
 
 class RegisterForm(FlaskForm):
+
     def birthdayValidator(form, field):
         try:
             datetime.datetime(int(form.birth_y.data),int(form.birth_m.data), int(form.birth_d.data))
         except ValueError:
-            raise validators.ValidationError('Please enter a valid date.')
+            raise validators.ValidationError(g.errors['date'])
         if datetime.datetime(int(form.birth_y.data),int(form.birth_m.data), int(form.birth_d.data)).date() > datetime.date.today():
-            raise validators.ValidationError('Please enter a valid birthdate.')
+            raise validators.ValidationError(g.errors['bday'])
 
     def passwordValidator(form, field):
         if not form.password1.data == form.password2.data:
-            raise validators.ValidationError('Passwords do not match.')
+            raise validators.ValidationError(g.errors['pw_match'])
 
     def uniqueEmailValidator(form, field):
-        if RegisterUser.query.filter_by(username=form.email.data).first():
-            raise validators.ValidationError('Email already registered.')
-
-    email = StringField('email', validators=[validators.InputRequired(), validators.Email(message='Please enter a valid email address.'), uniqueEmailValidator])
+        message = g.errors['email_exists']
+        if RegisterUser.query.filter(func.lower(RegisterUser.username)==form.email.data.lower()).first():
+            raise validators.ValidationError(message)
+        
+    email = StringField('email', validators=[validators.InputRequired(), validators.Email(message="Please enter a valid email address."), uniqueEmailValidator])
     fname = StringField('fname', validators=[validators.InputRequired()])
     lname = StringField('lame', validators=[validators.InputRequired()])
     mname = StringField('mname')
     ename = StringField('ename')
     address = TextAreaField('address',validators=[validators.InputRequired()])
-    phone_no = StringField('phone_no', validators=[validators.InputRequired(),validators.Regexp(r'^[\d]*$',message="Please enter a valid number."),validators.Length(min=7,message="Phone number too short.")])
+    phone_no = StringField('phone_no', validators=[validators.InputRequired(),validators.Regexp(r'^[\d]*$',message="Please enter a valid phone number."),validators.Length(min=7,message="Phone number too short.")])
     year_range = [str(i) for i in list(reversed(range(1900,datetime.date.today().year + 1,1)))]
     month_range = ["{:02d}".format(i) for i in range(1,13)]
     day_range = ["{:02d}".format(i) for i in range(1,32)]
@@ -907,15 +1350,21 @@ class RegisterForm(FlaskForm):
     gender = SelectField('gender',choices=[('f','Female'),('m','Male')])
     govt_id_type = SelectField('govt_id_type', choices=[('ID', 'ID'),('PP', 'Passport')])
     govt_id_value = StringField('govt_id_value', validators=[validators.InputRequired()])
-    password1 = PasswordField('password1', validators=[passwordValidator, validators.InputRequired(), validators.Regexp(r'^[^\s]+$',message='No spaces allowed.'), validators.Length(min=6,message="Password must be at least 6 characters.")])
+    password1 = PasswordField('password1', validators=[passwordValidator, validators.InputRequired(), validators.Regexp(r'^[^\s]+$',message='No spaces allowed.'), validators.Length(min=7,message="Password must be at least 7 characters.")])
     password2 = PasswordField('password2', validators=[validators.InputRequired()])
 
 # <------ MEMBER REGISTRATION ROUTE | @register ------>
 
 @app.route('/register/', methods=['GET', 'POST'])
-def register():
-    if not session.get('ip'):
-        return render_template('logout.html', message="Please connect to the portal using your WiFi settings.", hideReturnToHome=True)
+def register(): 
+    if session.get('messages'):
+        messages = session['messages']
+    else:
+        messages = load_json_file(os.path.join(APP_STATIC, 'lang/en.json'))
+    session['title'] = messages['title']
+    g.errors = messages['reg_errors']
+    if not session.get('ip'):  
+        return render_template('logout.html', message=messages['connect'], hideReturnToHome=True)
     uptime = Uptimes.query.filter_by(gw_id=session['gw_id'],status=1).first()
     if not uptime:
         uptime = Uptimes.query.filter_by(gw_id='DEFAULT',status=1).first()
@@ -924,18 +1373,47 @@ def register():
         start = datetime.time(*map(int, str(uptime.start_time).split(':')))
         end = datetime.time(*map(int, str(uptime.end_time).split(':')))
         if not time_in_range(start, end, tz.localize(datetime.datetime.now()).time()):
-            return render_template('logout.html', message=("Sorry, Pipol Konek is only available from " + start.strftime("%-I:%M %p") + " to " + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
+            return render_template('logout.html', message=(messages['schedule'][0] + start.strftime("%-I:%M %p") + messages['schedule'][1] + end.strftime("%-I:%M %p") + "."), hideReturnToHome=True)
     regForm = RegisterForm()
     if regForm.validate_on_submit():
+        if session.get('lang'):
+            lang = session['lang']
+        else:
+            lang = "en"
         bday = regForm.birth_y.data + '-' + regForm.birth_m.data + '-' + regForm.birth_d.data
         token = uuid.uuid4().hex
         while RegisterUser.query.filter_by(token=token).count() > 0:
             token = uuid.uuid4().hex
-        message = "Click on the following link to activate your membership: " + str(request.url_root) + "activate/" + str(token)
+        subject = messages['email_activate_subject']
+        message = '<html><p>' + messages['email_activate_body'] + '<a href="' + portal_url_root + "activate/" + str(token) + '/' + lang + '">ACTIVATE</a></p></html>'
         # try:
-        send_mail(subject="PIPOL KONEK Membership Activation", recipient=regForm.email.data, message=message)
-        newUser = RegisterUser(username=regForm.email.data,password=encryptPass(regForm.password1.data),fname=regForm.fname.data,lname=regForm.lname.data, mname=regForm.mname.data, ename=regForm.ename.data, address=regForm.address.data,phone_no=regForm.phone_no.data,birthdate=bday,gender=regForm.gender.data,id_type=regForm.govt_id_type.data,id_value=regForm.govt_id_value.data,status=0,token=token,registration_date=str(datetime.datetime.now()),validated=0)
-        db.session.add(newUser)
+        if session.get('mac'):
+            #count = Accounting.query.filter_by(auth_mode="Email Validation").filter_by(acctstatustype="Start").filter_by(mac=session['mac']).filter(Accounting.created_at.cast(Date)==datetime.date.today()).count()
+            count = 2
+            if count >= 2:
+                return render_template('logout.html', message=message, returnLink=url_for('access'), return_text=messages['return_text'])
+        send_mail(subject=subject, recipient=regForm.email.data, message=message)
+        usr = RegisterUser.query.filter_by(username=regForm.email.data).first()          
+        if not usr:
+            newUser = RegisterUser(username=regForm.email.data,password=encryptPass(regForm.password1.data),fname=regForm.fname.data,lname=regForm.lname.data, mname=regForm.mname.data, ename=regForm.ename.data, address=regForm.address.data,phone_no=regForm.phone_no.data,birthdate=bday,gender=regForm.gender.data,id_type=regForm.govt_id_type.data,id_value=regForm.govt_id_value.data,status=0,token=token,registration_date=str(datetime.datetime.now()),validated=0)
+            db.session.add(newUser)
+        else:
+            usr.password=encryptPass(regForm.password1.data)
+            usr.fname = regForm.fname.data
+            usr.lname = regForm.lname.data
+            usr.mname = regForm.mname.data
+            usr.ename = regForm.ename.data
+            usr.address = regForm.address.data
+            usr.phone_no = regForm.phone_no.data
+            usr.birthdate = bday
+            usr.gender = regForm.gender.data
+            usr.id_type = regForm.govt_id_type.data
+            usr.id_value = regForm.govt_id_value.data
+            usr.status = 0
+            usr.token = token
+            usr.registration_date = str(datetime.datetime.now())
+            usr.validated = 0
+            db.session.commit()
         if session.get('token'):
             srv = Client(server=pyradServer, secret=b"ap0ll0",
                      dict=Dictionary("dictionary"))
@@ -944,150 +1422,202 @@ def register():
             trans.stage = 'pending_confirmation'
             trans.package = 'Email Validation'
             trans.date_modified = str(datetime.datetime.now())
+            trans.last_active = get_localzone().localize(datetime.datetime.now())
+            trans.start_time = get_localzone().localize(datetime.datetime.now())
             db.session.commit()
             acct_req = srv.CreateAcctPacket(User_Name=trans.mac)
             acct_req["NAS-Identifier"] = trans.gw_id
             acct_req["Framed-IP-Address"] = trans.ip
-            acct_req["Framed-MTU"] = setSessionIdStart()
+            acct_req["Callback-Id"] = setSessionIdStart(trans.mac)
             acct_req["Login-LAT-Service"] = trans.package
             acct_req["Login-LAT-Node"] = trans.mac
             acct_req["Connect-Info"] = trans.device
             acct_req["Acct-Status-Type"] = "Start"
-            acct_req["Acct-Input-Octets"] = 0
-            acct_req["Acct-Output-Octets"] = 0
+            acct_req["Called-Station-Id"] = '0'
+            acct_req["Calling-Station-Id"] = '0'
             try:
                 reply = srv.SendPacket(acct_req)
             except pyrad.client.Timeout:
                 message = "RADIUS server does not reply"
+                
                 return render_template("logout.html", message=message, hideReturnToHome=True)
             except socket.error as error:
                 message = "Network error: " + error[1]
+                
                 return render_template("logout.html", message=message, hideReturnToHome=True)
+            
             return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
         else:
-            return render_template('logout.html', message='There was an error in creating your registration. Please try again later.', returnLink=url_for('access'))
+            
+            return render_template('logout.html', message=messages['reg_errors']['error'], returnLink=url_for('access'), return_text=messages['return_text'])
     if regForm.errors.items():
-        flash("Your form has some invalid input(s). Please fix them, and re-enter passwords, before submitting.")
-    return render_template('register.html', form=regForm, logo_path=getLogo(session['gw_id']))
+        flash(messages['reg_errors']['invalid_inputs'])
+    
+    return render_template('register.html', form=regForm, labels=messages['reg_form_labels'], logo_path=getLogo(session['gw_id']))
 
 
 # <------ REGISTERED MEMBER ACTIVATION | @regActivate ------>
 
 @app.route('/activate/<token>')
-def activateUser(token):
+@app.route('/activate/<token>/<lang>')
+def activateUser(token,lang="en"):
+    messages = load_json_file(os.path.join(APP_STATIC, 'lang/' + lang + '.json'))
+    _messages = messages['activate']
+    session['title'] = messages['title']
     user = RegisterUser.query.filter_by(token=token).first()
     if user:
-        if user.status == 1:
-            return render_template("logout.html", message="Your account has already been activated.", hideReturnToHome=True)
+        if user.status == 1:            
+            return render_template("logout.html", message=_messages['activated'], hideReturnToHome=True)
         else:
             user.status = 1
             db.session.commit()
-            return render_template("logout.html", message="Your have successfully activated your account. You can now use the portal as a registered member.", returnLink=url_for('access'))
+            
+            return render_template("logout.html", message=_messages['success'], hideReturnToHome=True)
     else:
-        return render_template("logout.html", message="You have submitted an invalid activation link.", hideReturnToHome=True)
+        
+        return render_template("logout.html", message=_messages['invalid'], hideReturnToHome=True)
 
 # <------ REGISTERED MEMBER SEND PASSWORD RESET LINK | @emailReset ------>
 @app.route('/email-reset/', methods=['GET', 'POST'])
 def sendPasswordResetLink():
+    if session.get('messages'):
+        messages = session['messages']
+    else:
+        messages = load_json_file(os.path.join(APP_STATIC, 'lang/en.json'))
+    session['title'] = messages['title']
+    errors = messages['reset_errors']
+    labels = messages['reset_pw_form']
     if request.method == 'GET':
-        return render_template("email-reset.html")
+        return render_template("email-reset.html", labels=labels)
     else:
         if request.form['email'] == None or request.form['email'] == '' or request.form['email'] == ' ':
-            return render_template("email-reset.html", message="Please enter a valid email address.")
+            return render_template("email-reset.html", message=errors['email'], labels=labels)
         else:
             reguser = RegisterUser.query.filter_by(username=request.form['email']).first()
             if reguser:
-                message = "Click on the following link to reset your password: " + str(request.url_root) + "reset/" + str(reguser.token)
+                if session.get('lang'):
+                    lang = session['lang']
+                else:
+                    lang = 'en'
+                if reguser.status == 0:
+                    return render_template('logout.html', message=errors['verify'], returnLink=url_for('access'), return_text=messages['return_text'])
+                message = '<html><p>' + messages['reset_pw'] + ' <a href="' + portal_url_root + "reset/" + str(reguser.token) + '/' + lang + '">RESET</a></p></html>'
                 # try:
-                send_mail(subject="PIPOL KONEK Password Reset", recipient=reguser.username, message=message)
+                if session.get('mac'):
+                    #count = Accounting.query.filter_by(auth_mode="Password Reset").filter_by(acctstatustype="Start").filter_by(mac=session['mac']).filter(Accounting.created_at.cast(Date)==datetime.date.today()).count()
+                    count = 1
+                    if count >= 2:
+                        return render_template('logout.html', message=errors['limit'], returnLink=url_for('access'), return_text=messages['return_text'])
+        
+                send_mail(subject="DICT Free WiFi For All: Password Reset", recipient=reguser.username, message=message)
                 srv = Client(server=pyradServer, secret=b"ap0ll0",
                      dict=Dictionary("dictionary"))
                 trans = Transaction.query.filter_by(token=session['token']).first()
-                trans.uname = trans.mac
+                trans.uname = reguser.username
                 trans.stage = 'reset_password'
                 trans.package = 'Password Reset'
                 trans.date_modified = str(datetime.datetime.now())
+                trans.last_active = get_localzone().localize(datetime.datetime.now())
+                trans.start_time = get_localzone().localize(datetime.datetime.now())
                 db.session.commit()
-                acct_req = srv.CreateAcctPacket(User_Name=trans.mac)
+                acct_req = srv.CreateAcctPacket(User_Name=reguser.username)
                 acct_req["NAS-Identifier"] = trans.gw_id
                 acct_req["Framed-IP-Address"] = trans.ip
-                acct_req["Framed-MTU"] = setSessionIdStart()
+                acct_req["Callback-Id"] = setSessionIdStart(trans.mac)
                 acct_req["Login-LAT-Service"] = trans.package
                 acct_req["Login-LAT-Node"] = trans.mac
                 acct_req["Connect-Info"] = trans.device
                 acct_req["Acct-Status-Type"] = "Start"
-                acct_req["Acct-Input-Octets"] = 0
-                acct_req["Acct-Output-Octets"] = 0
+                acct_req["Called-Station-Id"] = '0'
+                acct_req["Calling-Station-Id"] = '0'
                 try:
                     reply = srv.SendPacket(acct_req)
                 except pyrad.client.Timeout:
                     message = "RADIUS server does not reply"
+                    
                     return render_template("logout.html", message=message, hideReturnToHome=True)
                 except socket.error as error:
                     message = "Network error: " + error[1]
+                    
                     return render_template("logout.html", message=message, hideReturnToHome=True)
+                
                 return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
             else:
-                return render_template("email-reset.html", message=("Please enter an email address that is registered with Pipol Konek. " + Markup('<a href="%s">Register here.</a>' % url_for('register'))))
+                return render_template("email-reset.html", labels=labels, message=(messages['enter_email'][0] + Markup(('<a href="%s">' % url_for('register')) + messages['enter_email'][1] + '</a>' )))
 
 # <------ REGISTERED MEMBER RESET PASSWORD FORM | @reset ------>
 @app.route('/reset/<token>', methods=['GET', 'POST'])
-def resetUser(token):
+@app.route('/reset/<token>/<lang>', methods=['GET', 'POST'])
+def resetUser(token, lang="en"):
+    messages = load_json_file(os.path.join(APP_STATIC, 'lang/' + lang + '.json'))
+    session['title'] = messages['title']
+    errors = messages['reset_errors']
+    labels = messages['reset_pw_form']
     if request.method == 'GET':
-        return render_template("reset.html", token=token)
+        return render_template("reset.html", labels=labels, token=token, lang=lang)
     else:
         password1 = request.form['password1']
         password2 = request.form['password2']
         if not password1 == password2:
-            return render_template("reset.html", token=token, message="The passwords you entered do not match.")
+            return render_template("reset.html", labels=labels, token=token, message=errors['mismatch'], lang=lang)
         else:
             if password1 == None or password1 == '' or password2 == None or password2 == '':
-                return render_template("reset.html", token=token, message="Please fill in all fields.")
+                return render_template("reset.html", labels=labels, token=token, message=errors['all_fields'],lang=lang)
             if len(password1) <= 6 or len(password2) <= 6:
-                return render_template("reset.html", token=token, message="Password must be at least 6 characters.")
+                return render_template("reset.html", labels=labels, token=token, message=errors['pw_length'], lang=lang)
         reguser = RegisterUser.query.filter_by(token=token).first()
         if reguser:
             reguser.password = encryptPass(password1)
             db.session.commit()
-            return render_template("logout.html", message="Your password has been reset.", returnLink=url_for('access'))
+            
+            return render_template("logout.html", message=errors['success'], hideReturnToHome=True)
         else:
-            return render_template("logout.html", message="There was an error resetting your password.", returnLink=url_for('access'))
+            
+            return render_template("logout.html", message=errors['error'], returnLink=url_for('access'), return_text=messages['return_text'])
 
 
 # <------ CERTIFIED ACCESS AUTHENTICATION | @certVerify @loginCert ------>
 
 @app.route("/cert/")
 def cert():
+    if session.get('messages'):
+        messages = session['messages']
+    else:
+        messages = load_json_file(os.path.join(APP_STATIC, 'lang/en.json'))
+    session['title'] = messages['title']
     try:
-        verify = request.environ.get('SSL_CLIENT_VERIFY')
-        uname = request.environ.get('SSL_CLIENT_S_DN_CN')
+        verify = request.headers.get('SSL_CLIENT_VERIFY')
+        uname = request.headers.get('SSL_CLIENT_S_DN_CN')
     except:
-        return render_template('logout.html', message="Your browser/device certificate does not exist or is invalid. Please contact DICT to apply for a valid certificate.", returnLink=url_for('access'))
+        return render_template('logout.html', message=messages['invalid_certificate'], returnLink=url_for('access'), return_text=messages['return_text'])
+    
     if verify == "SUCCESS" and session.get('token'):
         srv = Client(server=pyradServer, secret=b"ap0ll0",
                      dict=Dictionary("dictionary"))
         # get dynamic limits, @hardcoded defaults
         daily_limit = getLimit(session['gw_id'], 3, 'dd', 300000000)
         month_limit = getLimit(session['gw_id'], 3, 'mm', 3000000000)
-        session['type'] = 'Certified'
+        session['type'] = 'Certificate'
         session['uname'] = uname
 
         #check if device already exists in database
         trans = Transaction.query.filter_by(token=session['token']).first()
-        if CertifiedDevices.query.filter_by(mac=trans.mac).count() > 0:
-            device = CertifiedDevices.query.filter_by(mac=trans.mac).first()
-            last_active_date = datetime.datetime.strptime(
-                device.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
+        if CertifiedDevices.query.filter_by(common_name=trans.uname).count() > 0:
+            device = CertifiedDevices.query.filter_by(common_name=trans.uname).first()
+            try:
+                last_active_date = datetime.datetime.strptime(device.last_active, '%Y-%m-%d %H:%M:%S.%f').date()
+            except:
+                last_active_date = datetime.datetime.strptime(device.last_active, '%Y-%m-%d %H:%M:%S').date()
             if device.cert_data >= daily_limit:
                 if last_active_date == datetime.date.today():
-                    return render_template('logout.html', message="You have exceeded your data usage limit for today.", returnLink=url_for('access'))
+                    return render_template('logout.html', message=messages['day_limit_exceeded'], returnLink=url_for('access'), return_text=messages['return_text'])
                 else:
                     device.cert_data = 0
                     db.session.commit()
             else:
                 if device.month_data >= month_limit:
                     if last_active_date.month == datetime.date.today().month and last_active_date.year == datetime.date.today().year:
-                        return render_template('logout.html', message="You have exceeded your data usage limit for this month.", returnLink=url_for('access'))
+                        return render_template('logout.html', message=message['month_limit_exceeded'], returnLink=url_for('access'), return_text=messages['return_text'])
                     else:
                         device.month_data = 0
                         db.session.commit()
@@ -1099,34 +1629,38 @@ def cert():
         
         # authenticate certified access device   
         trans.stage = "authenticated"
-        trans.package = "Certified"
+        trans.package = "Certificate"
         trans.uname = uname
         trans.date_modified = str(datetime.datetime.now())
+        trans.last_active = get_localzone().localize(datetime.datetime.now())
+        trans.start_time = get_localzone().localize(datetime.datetime.now())
         log = AccessAuthLogs(username=trans.uname, stage="authenticated", gw_id=session['gw_id'], mac=trans.mac)
         db.session.add(log)
         db.session.commit()
-        acct_req = srv.CreateAcctPacket(User_Name=trans.mac)
+        acct_req = srv.CreateAcctPacket(User_Name=uname)
         acct_req["NAS-Identifier"] = trans.gw_id
         acct_req["Framed-IP-Address"] = trans.ip
-        acct_req["Framed-MTU"] = setSessionIdStart()
+        acct_req["Callback-Id"] = setSessionIdStart(trans.mac)
         acct_req["Login-LAT-Service"] = trans.package
         acct_req["Login-LAT-Node"] = trans.mac
         acct_req["Connect-Info"] = trans.device
         acct_req["Acct-Status-Type"] = "Start"
-        acct_req["Acct-Input-Octets"] = 0
-        acct_req["Acct-Output-Octets"] = 0
+        acct_req["Called-Station-Id"] = '0'
+        acct_req["Calling-Station-Id"] = '0'
         try:
             reply = srv.SendPacket(acct_req)
         except pyrad.client.Timeout:
             message = "RADIUS server does not reply"
+            
             return render_template("logout.html", message=message, hideReturnToHome=True)
         except socket.error as error:
             message = "Network error: " + error[1]
+            
             return render_template("logout.html", message=message, hideReturnToHome=True)
+        
         return redirect("http://" + trans.gw_address + ":" + trans.gw_port + "/wifidog/auth?token=" + trans.token, code=302, Response=None)
     else:
-        return render_template('logout.html', message="Your browser/device certificate does not exist or is invalid. Please contact DICT to apply for a valid certificate.", returnLink=url_for('access'))
-
+        return render_template('logout.html', message=messages['invalid_certificate'], returnLink=url_for('access'), return_text=messages['return_text'])
 
 # <------ LOGOUT | @logout ------>
 
@@ -1138,12 +1672,14 @@ def logout():
         if trans:
             trans.stage = "logout"
             trans.date_modified = str(datetime.datetime.now())
+            trans.last_active = get_localzone().localize(datetime.datetime.now())
             db.session.commit()
+            
             #print("i entered here")
     return render_template('logout.html', message="You have logged out. Your Pipol Konek connection will automatically terminate after one (1) minute.")
 
 
-# /------ ADMIN INTERFACE STARTS HERE | @admin ------/ #
+## /------ ADMIN INTERFACE STARTS HERE | @admin ------/ #
 
 @app.errorhandler(403)
 @app.errorhandler(400)
@@ -1228,6 +1764,8 @@ class BaseView(ModelView):
     edit_template = 'admin/edit.html'
     list_template = 'admin/list.html'
     action_disallowed_list = ['delete']
+    page_size = 50
+
 
     @expose('/')
     def index_view(self):
@@ -1354,11 +1892,20 @@ class BaseView(ModelView):
 
 class UserView(BaseView):
     edit_template = 'admin/edit_user.html'
+    list_template = 'admin/list_users_adm.html'
     column_list = ('first_name', 'last_name', 'username', 'role', 'mpop', 'created_by', 'created_on', 'modified_by', 'modified_on')
     form_columns = ('username', 'first_name', 'last_name', 'password', 'role', 'mpop')
     column_labels = {
-        'mpop': 'Gateway/MPOP ID'
+        'mpop': 'Gateway/MPOP ID',
+        'first_name': 'First Name',
+        'last_name': 'Last Name',
+        'username': 'Username',
+        'mpop.gw_id': 'Gateway/MPOP ID',
+        'role.role' : 'Role'
     }
+    column_searchable_list = ['first_name', 'last_name', 'username', 'role.role', 'mpop.gw_id']
+    column_sortable_list = ['first_name', 'last_name', 'username', ('mpop', 'mpop.gw_id'), ('role', 'role.id'), 'created_on', ('created_by', ('created_by.first_name', 'created_by.last_name')), 'modified_on', ('modified_by', ('modified_by.first_name', 'modified_by.last_name'))]
+    column_default_sort = [('mpop.gw_id', False), ('role.id', False), ('id', False)]
     form_args = {
         'username': {
             'validators' : [validators.InputRequired()]
@@ -1442,13 +1989,73 @@ class UserView(BaseView):
                 return redirect('/admin/admin_users/')
         return redirect('/admin/admin_users/')
 
+    @expose('/import/', methods=('GET', 'POST'))
+    def import_users(self):
+        if request.method == 'POST':
+            if 'file' not in request.files:
+                flash('Error: No file uploaded', 'danger')                
+                return redirect('/admin/admin_users/')
+            
+            csvfile = request.files['file']
+            
+            if csvfile and allowed_file(csvfile.filename):
+                stream = io.StringIO(csvfile.stream.read().decode("UTF8"))
+                csv_reader = csv.reader(stream)
+                
+                next(csv_reader,None)
+
+                for row in csv_reader:
+                    try:
+                        if row[5].lower() == 'tenant':
+                            if not row[4] == 'DEFAULT':
+                                flash('Error importing: Tenant user ' + row[0] + ' must be assigned to the DEFAULT gateway.', 'error')
+                                return redirect('/admin/admin_users/')
+                        pw = generate_password_hash(row[1])
+                        role = None
+                        if row[5] == 'Tenant':
+                            role = 0
+                        elif row[5] == 'Manager':
+                            role = 1
+                        elif row[5] == 'User':
+                            role = 2
+                        user = Admin_Users()
+                        user.username=row[0]
+                        user.password=pw
+                        user.first_name=row[2]
+                        user.last_name=row[3]
+                        user.role_id=role
+                        user.mpop_id=row[4]
+                        user.created_by_id=current_user.id
+                        user.created_on=datetime.datetime.now()
+                        user.modified_by_id=current_user.id
+                        user.modified_on=datetime.datetime.now()
+                        db.session.add(user)
+                        db.session.commit()
+                    except IntegrityError:
+                        flash('Error importing: Username ' + row[0] + '. Please check formatting, missing fields or username duplication.', 'error')
+                        return redirect('/admin/admin_users/')
+                    except:
+                        flash('There was an error importing your file. Please format your csv file correctly.', 'error')
+                        return redirect('/admin/admin_users/')
+            else:
+                flash('There was an error importing your file. Only .csv files are accepted.', 'danger')
+                return redirect('/admin/admin_users/')
+            flash('Successfully imported users.', 'success')
+            return redirect('/admin/admin_users/')
+        return redirect('/admin/admin_users/')
+
 class ManagerUserView(UserView):
+    list_template = 'admin/list.html'
     edit_template = 'admin/edit_user_mgr.html'
     def get_query(self):
       return self.session.query(self.model).filter(self.model.mpop_id==current_user.mpop_id)
 
     def get_count_query(self):
       return self.session.query(func.count('*')).filter(self.model.mpop_id==current_user.mpop_id)
+
+    column_searchable_list = ['first_name', 'last_name', 'username', 'role.role']
+    column_sortable_list = ['first_name', 'last_name', 'username', ('role', 'role.id'), 'created_on', ('created_by', ('created_by.first_name', 'created_by.last_name')), 'modified_on', ('modified_by', ('modified_by.first_name', 'modified_by.last_name'))]
+
 
     form_args = {
         'username': {
@@ -1502,13 +2109,22 @@ class ManagerUserView(UserView):
                 return redirect('/admin/users_mgr/')
         return redirect('/admin/users_mgr/')
 
+ALLOWED_EXTENSIONS = set(['csv'])
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 class GatewayView(BaseView):
-    edit_modal = True
+    list_template = 'admin/list_gateways_adm.html'
     column_list = ('gw_id', 'name', 'created_by', 'created_on', 'modified_by', 'modified_on')
     column_labels = {
         'gw_id': 'Gateway/MPOP ID',
-        'name': 'Municipality Name'
+        'name': 'Municipality Name',
+        'created_by.first_name': 'Created By First Name','created_by.last_name': 'Created By Last Name', 
+        'modified_by.first_name': 'Modified By First Name', 'modified_by.last_name': 'Modified By Last Name'
     }
+    column_searchable_list = ['gw_id', 'created_by.first_name','created_by.last_name', 'modified_by.first_name', 'modified_by.last_name'] 
+    column_sortable_list = ['gw_id', 'name', 'created_on', ('created_by', ('created_by.first_name', 'created_by.last_name')), 'modified_on', ('modified_by', ('modified_by.first_name', 'modified_by.last_name'))]
+    column_default_sort = [('id', False)]
     form_columns = ('gw_id', 'name')
     form_args = {
         'gw_id': {
@@ -1543,14 +2159,59 @@ class GatewayView(BaseView):
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 0)
 
+    @expose('/import/', methods=('GET', 'POST'))
+    def import_gateways(self):
+        if request.method == 'POST':
+            if 'file' not in request.files:
+                flash('Error: No file uploaded', 'danger')                
+                return redirect('/admin/gateways/')
+            
+            csvfile = request.files['file']
+            
+            print('here')
+            
+            if csvfile and allowed_file(csvfile.filename):
+                stream = io.StringIO(csvfile.stream.read().decode("UTF8"))
+                csv_reader = csv.reader(stream)
+                
+                next(csv_reader,None)
+
+                for row in csv_reader:
+                    try:
+                        gw = Gateways(gw_id=row[0],name=row[1],created_by_id=current_user.id,created_on=datetime.datetime.now(),modified_by_id=current_user.id,modified_on=datetime.datetime.now())
+                        db.session.add(gw)
+                        db.session.commit()
+                    except IntegrityError:
+                        flash('Error importing: Gateway/MPOP ID ' + row[0] + ' already exists.', 'error')
+                        return redirect('/admin/gateways/')
+                    except:
+                        flash('There was an error importing your file. Please format your csv file correctly.', 'error')
+                        return redirect('/admin/gateways/')
+            else:
+                flash('There was an error importing your file. Only .csv files are accepted.', 'danger')
+                return redirect('/admin/gateways/')
+            flash('Successfully imported gateways.', 'success')
+            return redirect('/admin/gateways/')
+        return redirect('/admin/gateways/')
+   
+
 
 class DataLimitsView(BaseView):
     list_template = 'admin/list_status/data_limits_adm.html'
-    column_list = ('gateway_id', 'access_type', 'limit_type', 'value', 'created_by', 'created_on', 'modified_by', 'modified_on')
+    column_list = ('gw_id', 'access_type', 'limit_type', 'value', 'created_by', 'created_on', 'modified_by', 'modified_on')
     column_labels = {
         'gateway_id': 'Gateway / MPOP ID',
-        'value': 'Data Usage Limit (Bytes)'
+        'gw_id': 'Gateway / MPOP ID',
+        'value': 'Data Usage Limit (Bytes)',
+        'access_type': 'Access Type',
+        'limit_type': 'Limit Type',
+        'created_by.first_name': 'Created By First Name','created_by.last_name': 'Created By Last Name', 
+        'modified_by.first_name': 'Modified By First Name', 'modified_by.last_name': 'Modified By Last Name'
     }
+
+    column_searchable_list = ['gw_id', 'created_by.first_name','created_by.last_name', 'modified_by.first_name', 'modified_by.last_name']
+    column_sortable_list = ['gw_id', 'access_type', 'limit_type', 'created_on', ('created_by', ('created_by.first_name', 'created_by.last_name')), 'modified_on', ('modified_by', ('modified_by.first_name', 'modified_by.last_name'))]
+    column_default_sort = [('gw_id', False), ('access_type', False), ('limit_type', False)]
     form_columns = ('gateway_id', 'access_type', 'limit_type', 'value', 'status')
     form_edit_rules = ('gateway_id', 'access_type', 'limit_type', 'value')
 
@@ -1665,6 +2326,9 @@ class ManagerDataLimitsView(DataLimitsView):
       return self.session.query(func.count('*')).filter(self.model.gw_id==current_user.mpop_id)
 
     list_template = 'admin/list_status/data_limits_mgr.html'
+    column_searchable_list = []
+    column_sortable_list = ['access_type', 'limit_type', 'created_on', ('created_by', ('created_by.first_name', 'created_by.last_name')), 'modified_on', ('modified_by', ('modified_by.first_name', 'modified_by.last_name'))]
+
 
     form_args = {
         'modified_on': {
@@ -1743,10 +2407,17 @@ hours = [('00:00:00','12:00 AM'),('01:00:00','01:00 AM'),('02:00:00','02:00 AM')
 
 class UptimesView(BaseView):
     list_template = 'admin/list_status/uptimes_adm.html'    
-    column_list = ('gateway_id', 'start_time', 'end_time', 'created_by', 'created_on', 'modified_by', 'modified_on')
+    column_list = ('gw_id', 'start_time', 'end_time', 'created_by', 'created_on', 'modified_by', 'modified_on')
     column_labels = {
         'gateway_id': 'Gateway/MPOP ID',
+        'gw_id': 'Gateway/MPOP ID',
+        'created_by.first_name': 'Created By First Name','created_by.last_name': 'Created By Last Name', 
+        'modified_by.first_name': 'Modified By First Name', 'modified_by.last_name': 'Modified By Last Name'
     }
+
+    column_searchable_list = ['gw_id', 'created_by.first_name','created_by.last_name', 'modified_by.first_name', 'modified_by.last_name']
+    column_sortable_list = ['gw_id', 'created_on', ('created_by', ('created_by.first_name', 'created_by.last_name')), 'modified_on', ('modified_by', ('modified_by.first_name', 'modified_by.last_name'))]
+
     form_columns = ('gateway_id', 'start_time', 'end_time', 'status')
     form_edit_rules = ('gateway_id', 'start_time', 'end_time')
     form_extra_fields = {
@@ -1811,11 +2482,11 @@ class UptimesView(BaseView):
             if uptime:
                 if uptime.status == 0:
                     uptime.status = 1
-                    message = 'Selected uptime for ' + uptime.gw_id + ' successfully activated.' 
+                    message = 'Selected schedule for ' + uptime.gw_id + ' successfully activated.' 
                     alert = 'success'
                 else:
                     uptime.status = 0
-                    message = 'Selected uptime for ' + uptime.gw_id + ' successfully deactivated.'
+                    message = 'Selected schedule for ' + uptime.gw_id + ' successfully deactivated.'
                     alert = 'info'
                 uptime.modified_by_id = current_user.id
                 uptime.modified_on = str(datetime.datetime.now())
@@ -1823,13 +2494,17 @@ class UptimesView(BaseView):
                 flash(message, alert)
             else:
                 flash('Database error. Please contact your administrator.', 'danger')
-            return redirect('/admin/uptimes/')
-        return redirect('/admin/uptimes/')
+            return redirect('/admin/schedules/')
+        return redirect('/admin/schedules/')
 
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 0)
 
 class ManagerUptimesView(UptimesView):
+    column_searchable_list = []
+    column_sortable_list = ['created_on', ('created_by', ('created_by.first_name', 'created_by.last_name')), 'modified_on', ('modified_by', ('modified_by.first_name', 'modified_by.last_name'))]
+
+
     list_template = 'admin/list_status/uptimes_mgr.html'
     def get_query(self):
       return self.session.query(self.model).filter(self.model.gw_id==current_user.mpop_id)
@@ -1864,11 +2539,11 @@ class ManagerUptimesView(UptimesView):
             if uptime:
                 if uptime.status == 0:
                     uptime.status = 1
-                    message = 'Selected uptime for ' + uptime.gw_id + ' successfully activated.' 
+                    message = 'Selected schedule for ' + uptime.gw_id + ' successfully activated.' 
                     alert = 'success'
                 else:
                     uptime.status = 0
-                    message = 'Selected uptime for ' + uptime.gw_id + ' successfully deactivated.'
+                    message = 'Selected schedule for ' + uptime.gw_id + ' successfully deactivated.'
                     alert = 'info'
                 uptime.modified_by_id = current_user.id
                 uptime.modified_on = str(datetime.datetime.now())
@@ -1876,8 +2551,8 @@ class ManagerUptimesView(UptimesView):
                 flash(message, alert)
             else:
                 flash('Database error. Please contact your administrator.', 'danger')
-            return redirect('/admin/uptimes_mgr/')
-        return redirect('/admin/uptimes_mgr/')
+            return redirect('/admin/schedules_mgr/')
+        return redirect('/admin/schedules_mgr/')
 
     def is_accessible(self):
         return (current_user.is_authenticated and current_user.role_id == 1)
@@ -1885,6 +2560,147 @@ class ManagerUptimesView(UptimesView):
 class UserUptimesView(ManagerUptimesView):
     list_template = 'admin/list_status/list_status.html'
     form_columns = ('gateway_id', 'start_time', 'end_time')
+
+    def on_model_change(self, form, model, is_created):
+        model.modified_by = current_user
+        if is_created:
+            model.created_by = current_user
+            model.created_on = str(datetime.datetime.now())
+            model.status = 0
+
+    def is_accessible(self):
+        return (current_user.is_authenticated and current_user.role_id == 2)
+
+
+class RedirectsView(BaseView):
+    list_template = 'admin/list_status/redirects_adm.html'
+    create_template = 'admin/create_redirects.html'
+    edit_template = 'admin/edit_redirects.html' 
+       
+    column_list = ('gw_id', 'url', 'created_by', 'created_on', 'modified_by', 'modified_on')
+    column_labels = {
+        'gateway_id': 'Gateway/MPOP ID',
+        'gw_id': 'Gateway/MPOP ID',
+        'url': 'URL',
+        'created_by.first_name': 'Created By First Name','created_by.last_name': 'Created By Last Name', 
+        'modified_by.first_name': 'Modified By First Name', 'modified_by.last_name': 'Modified By Last Name'
+    }
+
+    column_searchable_list = ['gw_id', 'url', 'created_by.first_name','created_by.last_name', 'modified_by.first_name', 'modified_by.last_name']
+    column_sortable_list = ['gw_id', 'created_on', ('created_by', ('created_by.first_name', 'created_by.last_name')), 'modified_on', ('modified_by', ('modified_by.first_name', 'modified_by.last_name'))]
+
+    form_columns = ('gateway_id', 'url', 'status')
+    form_edit_rules = ('gateway_id', 'url')
+    form_extra_fields = {
+        'status': RadioField(
+            'Status',
+            choices=[('1', 'Active'), ('0', 'Inactive')],validators=[validators.InputRequired()],default='0'
+        )
+    }
+    form_args = {
+        'gateway_id': {
+            'label': 'Gateway/MPOP ID',
+            'validators' : [validators.InputRequired()]
+        },
+        'url': {
+            'label': 'URL',
+            'validators' : [validators.InputRequired()],
+            'description': "<i>This is the website that the portal will link to. Ex: <b> https://dict.gov.ph </b></i>"
+        }
+    }
+
+ 
+    column_formatters = {
+        'modified_on': _mod_date_formatter,
+        'status': _status_formatter,        
+        'modified_by': _mod_by_formatter,
+        'created_by': _cre_by_formatter,
+        'created_on': _cre_date_formatter
+    }
+
+    def on_model_change(self, form, model, is_created):
+        model.modified_by = current_user
+        if is_created:
+            model.created_by = current_user
+            model.created_on = str(datetime.datetime.now())
+
+    @expose('/change-status/<id>', methods=['GET', 'POST'])
+    def changeStatus(self,id):
+        if request.method == 'POST':
+            url = PortalRedirectLinks.query.filter_by(id=id).first()
+            if url:
+                if url.status == 0:
+                    url.status = 1
+                    message = 'Selected webpage URL for ' + url.gw_id + ' successfully activated.' 
+                    alert = 'success'
+                else:
+                    url.status = 0
+                    message = 'Selected webpage URL for ' + url.gw_id + ' successfully deactivated.'
+                    alert = 'info'
+                url.modified_by_id = current_user.id
+                url.modified_on = str(datetime.datetime.now())
+                db.session.commit()
+                flash(message, alert)
+            else:
+                flash('Database error. Please contact your administrator.', 'danger')
+            return redirect('/admin/redirects/')
+        return redirect('/admin/redirects/')
+
+    def is_accessible(self):
+        return (current_user.is_authenticated and current_user.role_id == 0)
+
+class ManagerRedirectsView(RedirectsView):
+    column_searchable_list = []
+    column_sortable_list = ['created_on', ('created_by', ('created_by.first_name', 'created_by.last_name')), 'modified_on', ('modified_by', ('modified_by.first_name', 'modified_by.last_name'))]
+
+
+    list_template = 'admin/list_status/redirects_mgr.html'
+    def get_query(self):
+      return self.session.query(self.model).filter(self.model.gw_id==current_user.mpop_id)
+
+    def get_count_query(self):
+      return self.session.query(func.count('*')).filter(self.model.gw_id==current_user.mpop_id)
+
+    form_args = {
+        'gateway_id': {
+            'label': 'Gateway / MPOP ID',
+            'validators' : [validators.InputRequired()],
+            'query_factory' : lambda:  db.session.query(Gateways).filter_by(gw_id=current_user.mpop_id)
+        },
+        'url': {
+            'label': 'URL',
+            'validators' : [validators.InputRequired()]
+        }
+    }
+
+    @expose('/change-status/<id>', methods=['GET', 'POST'])
+    def changeStatus(self,id):
+        if request.method == 'POST':
+            url = PortalRedirectLinks.query.filter_by(id=id).first()
+            if url:
+                if url.status == 0:
+                    url.status = 1
+                    message = 'Selected webpage URL for ' + url.gw_id + ' successfully activated.' 
+                    alert = 'success'
+                else:
+                    url.status = 0
+                    message = 'Selected webpage URL for ' + url.gw_id + ' successfully deactivated.'
+                    alert = 'info'
+                url.modified_by_id = current_user.id
+                url.modified_on = str(datetime.datetime.now())
+                db.session.commit()
+                flash(message, alert)
+            else:
+                flash('Database error. Please contact your administrator.', 'danger')
+            return redirect('/admin/redirects_mgr/')
+        return redirect('/admin/redirects_mgr/')
+
+    def is_accessible(self):
+        return (current_user.is_authenticated and current_user.role_id == 1)
+
+class UserRedirectsView(ManagerRedirectsView):
+    list_template = 'admin/list_status/list_status.html'
+    form_columns = ('gateway_id', 'url')
 
     def on_model_change(self, form, model, is_created):
         model.modified_by = current_user
@@ -1918,12 +2734,18 @@ class AnnouncementsView(BaseView):
     list_template = 'admin/list_status/announcements_adm.html'
 
     column_list = [
-        'gateway_id', 'image', 'created_by', 'created_on', 'modified_by', 'modified_on'
+        'gw_id', 'image', 'created_by', 'created_on', 'modified_by', 'modified_on'
     ]
 
     column_labels = {
-        'gateway_id': 'Gateway/MPOP ID', 'image': 'Announcement Image'
+        'gateway_id': 'Gateway/MPOP ID', 'image': 'Announcement Image',
+        'gw_id': 'Gateway/MPOP ID',
+        'created_by.first_name': 'Created By First Name','created_by.last_name': 'Created By Last Name', 
+        'modified_by.first_name': 'Modified By First Name', 'modified_by.last_name': 'Modified By Last Name'
     }
+
+    column_searchable_list = ['gw_id', 'created_by.first_name','created_by.last_name', 'modified_by.first_name', 'modified_by.last_name']
+    column_sortable_list = ['gw_id', 'created_on', ('created_by', ('created_by.first_name', 'created_by.last_name')), 'modified_on', ('modified_by', ('modified_by.first_name', 'modified_by.last_name'))]
 
     form_extra_fields = {
         'path': admin_form.ImageUploadField(
@@ -1993,6 +2815,9 @@ class AnnouncementsView(BaseView):
 class ManagerAnnouncementsView(AnnouncementsView):
 
     list_template = 'admin/list_status/announcements_mgr.html'
+    column_searchable_list = []
+    column_sortable_list = ['created_on', ('created_by', ('created_by.first_name', 'created_by.last_name')), 'modified_on', ('modified_by', ('modified_by.first_name', 'modified_by.last_name'))]
+
 
     def get_query(self):
       return self.session.query(self.model).filter(self.model.gw_id==current_user.mpop_id)
@@ -2071,8 +2896,14 @@ class GroupAnnouncementsView(BaseView):
     ]
 
     column_labels = {
-        'group': 'Gateway Group', 'image': 'Announcement Image'
+        'group': 'Gateway Group', 'image': 'Announcement Image',
+        'group.name': 'Gateway Group',
+        'created_by.first_name': 'Created By First Name','created_by.last_name': 'Created By Last Name', 
+        'modified_by.first_name': 'Modified By First Name', 'modified_by.last_name': 'Modified By Last Name'
     }
+
+    column_searchable_list = ['group.name', 'created_by.first_name','created_by.last_name', 'modified_by.first_name', 'modified_by.last_name']
+    column_sortable_list = [('group', 'group.name'), 'created_on', ('created_by', ('created_by.first_name', 'created_by.last_name')), 'modified_on', ('modified_by', ('modified_by.first_name', 'modified_by.last_name'))]
 
     form_extra_fields = {
         'path': admin_form.ImageUploadField(
@@ -2153,12 +2984,17 @@ class LogosView(BaseView):
     list_template = 'admin/list_status/logos_adm.html'
 
     column_list = [
-        'image', 'gateway_id', 'created_by', 'created_on', 'modified_by', 'modified_on'
+        'image', 'gw_id', 'created_by', 'created_on', 'modified_by', 'modified_on'
     ]
 
     column_labels = {
-        'gateway_id': 'Gateway/MPOP ID', 'image': 'Logo Image'
+        'gateway_id': 'Gateway/MPOP ID', 'image': 'Logo Image', 'gw_id': 'Gateway/MPOP ID',
+        'created_by.first_name': 'Created By First Name','created_by.last_name': 'Created By Last Name', 
+        'modified_by.first_name': 'Modified By First Name', 'modified_by.last_name': 'Modified By Last Name'
     }
+
+    column_searchable_list = ['gw_id', 'created_by.first_name','created_by.last_name', 'modified_by.first_name', 'modified_by.last_name']
+    column_sortable_list = ['gw_id', 'created_on', ('created_by', ('created_by.first_name', 'created_by.last_name')), 'modified_on', ('modified_by', ('modified_by.first_name', 'modified_by.last_name'))]
 
     form_extra_fields = {
         'path': admin_form.ImageUploadField(
@@ -2229,6 +3065,8 @@ class LogosView(BaseView):
 class ManagerLogosView(LogosView):
 
     list_template = 'admin/list_status/logos_mgr.html'
+    column_searchable_list = []
+    column_sortable_list = ['created_on', ('created_by', ('created_by.first_name', 'created_by.last_name')), 'modified_on', ('modified_by', ('modified_by.first_name', 'modified_by.last_name'))]
 
     def get_query(self):
       return self.session.query(self.model).filter(self.model.gw_id==current_user.mpop_id)
@@ -2298,6 +3136,17 @@ def del_image(mapper, connection, target):
 class GatewayGroupsView(BaseView):
     column_list = ('name', 'gateways', 'created_by', 'created_on', 'modified_by', 'modified_on')
     form_columns = ('name', 'gateways')
+
+    column_labels = {
+        'name': 'Group Name',
+        'gateways.gw_id': 'Gateways',
+        'created_by.first_name': 'Created By First Name','created_by.last_name': 'Created By Last Name', 
+        'modified_by.first_name': 'Modified By First Name', 'modified_by.last_name': 'Modified By Last Name'
+    }
+
+    column_searchable_list = ['name', 'gateways.gw_id','created_by.first_name','created_by.last_name', 'modified_by.first_name', 'modified_by.last_name']
+    column_sortable_list = ['name', 'created_on', ('created_by', ('created_by.first_name', 'created_by.last_name')), 'modified_on', ('modified_by', ('modified_by.first_name', 'modified_by.last_name'))]
+
 
     form_args = {
         'gateways': {
@@ -2394,7 +3243,7 @@ class AdminIndexView(admin.AdminIndexView):
             user = Admin_Users.query.filter_by(id=current_user.id).first()
             if user:
                 user.password = generate_password_hash(admform.password1.data)
-                user.modified_by_id = current_user.id
+                #user.modified_by_id = current_user.id
                 db.session.commit()
                 logout_user()
                 flash('Password changed. Please log in again.', 'success')
@@ -2411,7 +3260,7 @@ class AdminIndexView(admin.AdminIndexView):
 init_login()
 
 # Create admin
-admin = admin.Admin(app, 'Wild Weasel Admin', index_view=AdminIndexView(), base_template='my_master.html', template_mode='bootstrap3')
+admin = admin.Admin(app, 'Quad A', index_view=AdminIndexView(), base_template='my_master.html', template_mode='bootstrap3')
 app.config['FLASK_ADMIN_FLUID_LAYOUT'] = True
 #app.config['FLASK_ADMIN_SWATCH'] = 'flatly'
 
@@ -2422,9 +3271,12 @@ admin.add_view(ManagerUserView(Admin_Users, db.session, name='Users', endpoint='
 admin.add_view(DataLimitsView(Data_Limits, db.session, name="Data Limits"))
 admin.add_view(ManagerDataLimitsView(Data_Limits, db.session, name="Data Limits", endpoint='limits_mgr'))
 admin.add_view(UserDataLimitsView(Data_Limits, db.session, name="Data Limits", endpoint='limits_usr'))
-admin.add_view(UptimesView(Uptimes, db.session, name="Portal Uptimes"))
-admin.add_view(ManagerUptimesView(Uptimes, db.session, name="Portal Uptimes", endpoint='uptimes_mgr'))
-admin.add_view(UserUptimesView(Uptimes, db.session, name="Portal Uptimes", endpoint='uptimes_usr'))
+admin.add_view(UptimesView(Uptimes, db.session, name="Portal Schedules", endpoint='schedules'))
+admin.add_view(ManagerUptimesView(Uptimes, db.session, name="Portal Schedules", endpoint='schedules_mgr'))
+admin.add_view(UserUptimesView(Uptimes, db.session, name="Portal Schedules", endpoint='schedules_usr'))
+admin.add_view(RedirectsView(PortalRedirectLinks, db.session, name="Webpage Access", endpoint="redirects"))
+admin.add_view(ManagerRedirectsView(PortalRedirectLinks, db.session, name="Webpage Access", endpoint='redirects_mgr'))
+admin.add_view(UserRedirectsView(PortalRedirectLinks, db.session, name="Webpage Access", endpoint='redirects_usr'))
 admin.add_view(LogosView(Logos, db.session))
 admin.add_view(ManagerLogosView(Logos, db.session, name="Logos", endpoint='logos_mgr'))
 admin.add_view(UserLogosView(Logos, db.session, name="Logos", endpoint='logos_usr'))
@@ -2435,4 +3287,4 @@ admin.add_view(GatewayGroupsView(GatewayGroup,db.session, name='Gateway Groups')
 admin.add_view(GroupAnnouncementsView(GroupAnnouncements, db.session, name="Group Announcements"))
 
 if __name__ == '__main__':
-    app.run()
+    app.run(host='0.0.0.0', port=8082)

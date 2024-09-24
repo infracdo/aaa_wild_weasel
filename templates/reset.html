@@ -1,7 +1,9 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>PIPOL KONEK</title>
+      {% if session.get('title') %}
+      <title>{{ session['title'] }}</title>
+      {% endif %}
     <link
       rel="stylesheet"
       href="{{ url_for('static', filename='styles.css') }}"
@@ -12,16 +14,19 @@
     <div class="content-container">
       <div class="top-bar"></div>
       <section class="logo-row">
-        <div class="login-logo"><h1>PIPOL KONEK</h1></div>
+          <img
+          src="{{url_for('static', filename='free_wifi.png')}}"
+          class="login-logo"
+        />
       </section>
 
-      <h2>Reset Password</h2>
+      <h2>{{ labels['header'] }}</h2>
       <br />
-      <form class="form" action="/reset/{{ token }}" method="post">
+      <form class="form" action="/reset/{{ token }}/{{ lang }}" method="post">
         <fieldset>
-          <label for="password1">New Password</label>
+          <label for="password1">{{ labels['pw1'] }}</label>
           <input type="password" name="password1" />
-          <label for="password2">Re-enter Password</label>
+          <label for="password2">{{ labels['pw2'] }}</label>
           <input type="password" name="password2"/>
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
           {% if message %}
@@ -30,13 +35,13 @@
           </p>
           {% endif %}
           <button type="submit" class="enter-button form-button">
-            Reset
+            {{ labels['reset_button'] }}
           </button>
         </fieldset>
       </form>
       <br /><br /><br />
       <div class="copyright-footer">
-        <p>Apollo Technologies, Inc. &copy; 2019 | <a href="https://rt.apolloglobal.net" target="_blank">Contact Us</a></p>
+        <p>Apollo Technologies, Inc. &copy; <script type="text/javascript">document.write(new Date().getFullYear());</script> | <a href="https://rt.apolloglobal.net" target="_blank">Contact Us</a></p>
       </div>
     </div>
     <br /><br />

@@ -1,7 +1,9 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>PIPOL KONEK</title>
+      {% if session.get('title') %}
+      <title>{{ session['title'] }}</title>
+      {% endif %}
     <link
       rel="stylesheet"
       href="{{url_for('static', filename='styles.css')}}"
@@ -39,33 +41,45 @@
       </section>
       <table class="pure-table pure-table-horizontal">
         <thead>
-          <tr>
+            <tr>
+        {% if lang == 'tl' %}
+            <th>Bucket</th>
+            <th>Kabuuan</th>
+            <th>Nagamit</th>
+            <th>Nalalabi</th>
+        {% else %}
             <th>Bucket</th>
             <th>Total</th>
             <th>Used</th>
             <th>Remaining</th>
+        {% endif %}    
+            
           </tr>
         </thead>
 
         <tbody>
           <tr>
             <td>{{ display_type }} Daily</td>
-            <td>{{ daily_limit }}(GiB)</td>
-            <td>{{ daily_used }}(MB)</td>
-            <td>{{ daily_remaining }}(MB)</td>
+            <td>{{ daily_limit }}</td>
+            <td>{{ daily_used }}</td>
+            <td>{{ daily_remaining }}</td>
           </tr>
           <tr>
             <td>{{ display_type }} Monthly</td>
-            <td>{{ monthly_limit }}(GiB)</td>
-            <td>{{ monthly_used }}(MB)</td>
-            <td>{{ monthly_remaining }}(MB)</td>
+            <td>{{ monthly_limit }}</td>
+            <td>{{ monthly_used }}</td>
+            <td>{{ monthly_remaining }}</td>
           </tr>
         </tbody>
       </table>
       <br />
-      <a href="https://google.com/"
-        ><button class="enter-button portal-next">Next</button></a
-      >
+      <a href="{{ path }}">
+        {% if lang == 'tl' %}
+        <button class="enter-button portal-next">Susunod</button>
+        {% else %}
+        <button class="enter-button portal-next">Next</button>
+        {% endif %}
+        </a>
       <br /><br />
       {% if announcements %}
       <br /><br />
@@ -80,7 +94,7 @@
       {% endif %}
       <br /><br />
       <div class="copyright-footer">
-        <p>Apollo Technologies, Inc. &copy; 2019 | <a href="https://rt.apolloglobal.net">Contact Us</a></p>
+        <p>Apollo Technologies, Inc. &copy <script type="text/javascript">document.write(new Date().getFullYear());</script> | <a href="https://rt.apolloglobal.net">Contact Us</a></p>
       </div>
       <br /><br />
     </div>

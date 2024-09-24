@@ -1,0 +1,4 @@
+Username,Password,First Name,Last Name,Gateway or MPOP ID,Role
+testadmin,testadmin,Test,Admin,DEFAULT,Tenant
+testmanager,testmanager,Test,Manager2,gw01,Manager
+testuser,testuser,Test,User,gw02,User

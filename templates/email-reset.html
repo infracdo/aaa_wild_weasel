@@ -1,7 +1,9 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>PIPOL KONEK</title>
+      {% if session.get('title') %}
+      <title>{{ session['title'] }}</title>
+      {% endif %}
     <link
     rel="stylesheet"
     href="{{url_for('static', filename='styles.css')}}"
@@ -16,20 +18,23 @@
     <div class="content-container">
       <div class="top-bar"></div>
       <section class="logo-row">
-        <div class="login-logo"><h1>PIPOL KONEK</h1></div>
+          <img
+          src="{{url_for('static', filename='free_wifi.png')}}"
+          class="login-logo"
+        />
         <img src="{{ url_for('static', filename='dict.png') }}" class="login-logo" />
       </section>
 
-      <h2>Reset Password</h2>
+      <h2>{{ labels['header'] }}</h2>
       <br />
       <form class="form" action="/email-reset/" method="post">
         <fieldset>
-          <label for="email">Registered Email Address</label>
+          <label for="email">{{ labels['email'] }}</label>
           <input type="email" name="email" />
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-          <p>Your password reset link will be sent to the registered email address associated with your account.</p>
+          <p>{{ labels['description'] }}</p>
           <button type="submit" class="enter-button form-button">
-            Send
+            {{ labels['submit'] }}
           </button>
           {% if message %}
           <p>
@@ -40,7 +45,7 @@
       </form>
       <br /><br /><br />
       <div class="copyright-footer">
-        <p>Apollo Technologies, Inc. &copy; 2019 | <a href="https://rt.apolloglobal.net" target="_blank">Contact Us</a></p>
+        <p>Apollo Technologies, Inc. &copy; <script type="text/javascript">document.write(new Date().getFullYear());</script> | <a href="https://rt.apolloglobal.net" target="_blank">Contact Us</a></p>
       </div>
     </div>
     <br /><br />

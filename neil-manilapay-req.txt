@@ -1,0 +1,83 @@
+appdirs              
+attrs              
+Automat              
+beautifulsoup4               
+blinker               
+certifi          
+chardet               
+Click                
+#cloud-init==23.2.1      no chance        
+colorama              
+#command-not-found==0.3          no chance        
+configobj              
+constantly              
+cryptography                
+#dbus-python==1.2.16           installed   
+distlib              
+distro            
+#distro-info==0.23ubuntu1       installed  
+entrypoints                
+filelock             
+Flask              
+html5lib              
+httplib2             
+hyperlink             
+idna          
+importlib-metadata              
+incremental            
+itsdangerous               
+Jinja2              
+jsonpatch               
+jsonpointer                 
+jsonschema              
+keyring           
+#language-selector==0.1        no chance         
+launchpadlib           
+lazr.restfulclient             
+lazr.uri            
+#lxml==4.5.0        installed?       
+MarkupSafe              
+more-itertools            
+netifaces             
+oauthlib             
+pexpect               
+pip            
+pyasn1              
+pyasn1-modules               
+PyGObject             
+PyHamcrest              
+pyinotify               
+PyJWT              
+pymacaroons              
+PyNaCl              
+pyOpenSSL             
+pyrsistent              
+pyserial               
+#python-apt==2.0.1+ubuntu0.20.4.1       no chanceee
+#python-debian==0.1.36+ubuntu1.1
+python-debian
+PyYAML               
+requests             
+requests-unixsocket               
+SecretStorage               
+service-identity              
+setuptools              
+simplejson             
+six             
+#sos==4.4
+sos           
+soupsieve              
+ssh-import-id               
+systemd-python                 
+Twisted             
+#ubuntu-advantage-tools==8001                no chance
+#ufw==0.36                no chance
+#unattended-upgrades==0.1       no chance          
+urllib3             
+virtualenv            
+wadllib              
+webencodings               
+Werkzeug              
+#wheel==0.34.2              
+zipp               
+#zope.interface==4.7.1      installed

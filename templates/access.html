@@ -1,7 +1,9 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>PIPOL KONEK</title>
+      {% if session.get('title') %}
+      <title>{{ session['title'] }}</title>
+      {% endif %}
     <script src="{{ url_for('static', filename='jquery-3.3.1.min.js') }}"></script>
     <link href="{{ url_for('static', filename='bootstrap.min.css') }}" rel="stylesheet"/>
     <script src="{{ url_for('static', filename='bootstrap.min.js') }}"></script>
@@ -15,7 +17,10 @@
     <div class="content-container">
       <div class="top-bar"></div>
       <section class="logo-row">
-        <div class="login-logo"><h1>PIPOL KONEK</h1></div>
+        <img
+          src="{{url_for('static', filename='free_wifi.png')}}"
+          class="login-logo"
+        />
         <img
           src="{{url_for('static', filename='dict.png')}}"
           class="login-logo"
@@ -42,7 +47,7 @@
           <input type="hidden" name="package" value="Free" />
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
           <a href="#"><button data-toggle="modal" data-target="#mymodal" type="submit" class="access-button yellow">
-            INSTANT ACCESS ({{ limit1 }}MB)
+            INSTANT ACCESS ({{ limit1 }})
           </button></a>
         </form>
         {% if lang == 'tl' %}
@@ -52,18 +57,18 @@
         {% endif %}
           <button class="access-button red">
             {% if lang == 'tl' %}REHISTRADONG {% else %}REGISTERED {% endif %}
-            ACCESS ({{ limit2 }}MB)
+            ACCESS ({{ limit2 }})
           </button>
         </a>
         <a href="{{ url_for('cert') }}"
           ><button data-toggle="modal" data-target="#mymodal" class="access-button brown">
-            CERT ACCESS ({{ limit3 }}MB)
+            CERT ACCESS ({{ limit3 }})
           </button></a
         >
       </div>
       <br /><br />
       <div class="copyright-footer">
-        <p>Apollo Technologies, Inc. &copy; 2019 | <a href="https://rt.apolloglobal.net" target="_blank">Contact Us</a></p>
+        <p>Apollo Technologies, Inc. &copy; <script type="text/javascript">document.write(new Date().getFullYear());</script> | <a href="https://rt.apolloglobal.net" target="_blank">Contact Us</a></p>
       </div>
       <br />
     </div>

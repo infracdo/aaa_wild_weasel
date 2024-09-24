@@ -2,7 +2,9 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>PIPOL KONEK</title>
+      {% if session.get('title') %}
+      <title>{{ session['title'] }}</title>
+      {% endif %}
     <link
       rel="stylesheet"
       href="{{ url_for('static', filename='styles.css') }}"
@@ -30,11 +32,7 @@
         text-align: center;
       }
       select {
-        background-image: url("data:image/svg+xml,\
-      <svg version='1.1' xmlns='http://www.w3.org/2000/svg' width='14px'\
-           height='14px' viewBox='0 0 1200 1000' fill='rgb(51,51,51)'>\
-        <path d='M1100 411l-198 -199l-353 353l-353 -353l-197 199l551 551z'/>\
-      </svg>");
+        background-image: url("data:image/svg+xml,<svg version='1.1' xmlns='http://www.w3.org/2000/svg' width='14px' height='14px' viewBox='0 0 1200 1000' fill='rgb(51,51,51)'><path d='M1100 411l-198 -199l-353 353l-353 -353l-197 199l551 551z'/></svg>");
         background-repeat: no-repeat;
         background-position: calc(100% - 7px) 50%;
         -moz-appearance: none;
@@ -96,7 +94,7 @@
         }
       }
       .yellow {
-        background-color: rgb(243, 174, 32);
+        background-color: rgb(0, 156, 140);
       }
     </style>
   </head>
@@ -105,7 +103,10 @@
     <div class="content-container">
       <div class="top-bar"></div>
       <section class="logo-row">
-        <div class="login-logo"><h1>PIPOL KONEK</h1></div>
+          <img
+          src="{{url_for('static', filename='free_wifi.png')}}"
+          class="login-logo"
+        />
         <img
           src="{{ url_for('static', filename='dict.png') }}"
           class="login-logo"
@@ -118,7 +119,7 @@
         {% endif %}
       </section>
 
-      <h2>{% if lang == 'tl' %}Magregister{% else %}Register{% endif %}</h2>
+      <h2> {{ labels['header'] }}</h2>
       <br />
       <form class="form" action="{{ url_for('register') }}" method="post">
         <fieldset>
@@ -130,21 +131,22 @@
           </section>
           {% endif %} {% endwith %}
           {{ form.csrf_token() }}
-          <label for="form.email.name">Email</label>
+          <label for="form.email.name">{{ labels['email'] }}*</label>
           {{ render_field(form.email, placeholder='user@example.com') }}
-          <label for="fname">First Name</label>
-          {{ render_field(form.fname, placeholder='First Name') }}
-          <label for="mname">Middle Name</label>
-          {{ render_field(form.mname, placeholder='Middle Name') }}
-          <label for="lname">Last Name</label>
-          {{ render_field(form.lname, placeholder='Last Name') }}
-          <label for="ename">Name Extension</label>
-          {{ render_field(form.ename, placeholder='Name Extension (ex. Jr)') }}
-          <label for="address">Address</label>
-          {{ render_field(form.address, placeholder='Address') }}
-          <label for="phone">Phone Number</label>
-          {{ render_field(form.phone_no, placeholder='Phone Number') }}
-          <label for="birthday">Birthday (YYYY-MM-DD)</label>
+   
+          <label for="fname">{{ labels['fname'] }}*</label>
+          {{ render_field(form.fname, placeholder=labels['fname']) }}
+          <label for="mname">{{ labels['mname'] }}</label>
+          {{ render_field(form.mname, placeholder=labels['mname']) }}
+          <label for="lname">{{ labels['lname'] }}*</label>
+          {{ render_field(form.lname, placeholder=labels['lname']) }}
+          <label for="ename">{{ labels['ename'] }}</label>
+          {{ render_field(form.ename, placeholder='(ex. Jr)') }}
+          <label for="address">{{ labels['address'] }}*</label>
+          {{ render_field(form.address, placeholder=labels['address']) }}
+          <label for="phone">{{ labels['phone'] }}*</label>
+          {{ render_field(form.phone_no, placeholder=labels['phone']) }}
+          <label for="birthday">{{ labels['bday'] }} (YYYY-MM-DD)*</label>
           {% for error in form.birth_y.errors %}
           <p style="color:red;">{{ error }}</p>
           {% endfor %}
@@ -153,28 +155,27 @@
             {{ form.birth_m }}
             {{ form.birth_d }}
           </section>
-          <label for="gender">Gender</label>
+          <label for="gender">{{ labels['gender'] }}*</label>
           {{ form.gender }}
-          <label for="govt_id_type">Government ID Type</label>
+          <label for="govt_id_type">{{ labels['id_type'] }}*</label>
           <section class="inline-govt">
             {{ form.govt_id_type }}
-            {{ render_field(form.govt_id_value, placeholder='Value') }}
+            {{ render_field(form.govt_id_value, placeholder=labels['id_value']) }}
           </section>
-          <label for="password1">Password</label>
+          <label for="password1">Password*</label>
           {{ render_field(form.password1) }}
-          <label for="password2">Repeat Password</label>
+          <label for="password2">{{ labels['repeat'] }}Password*</label>
           {{ render_field(form.password2) }}
           <button type="submit" class="enter-button form-button yellow">
-            Register
+            {{ labels['header'] }}
           </button>
-          <button class="enter-button form-button">
-            Back
-          </button>
+          <a class="enter-button form-button" style="text-decoration: none" href="{{ url_for('loginReg') }}">{{ labels['back'] }}</a>
         </fieldset>
       </form>
+      
       <br /><br /><br />
       <div class="copyright-footer">
-        <p>Apollo Technologies, Inc. &copy; 2019 | <a href="https://rt.apolloglobal.net" target="_blank">Contact Us</a></p>
+        <p>Apollo Technologies, Inc. &copy; <script type="text/javascript">document.write(new Date().getFullYear());</script> | <a href="https://rt.apolloglobal.net" target="_blank">Contact Us</a></p>
       </div>
     </div>
     <br /><br />

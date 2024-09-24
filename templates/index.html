@@ -1,7 +1,9 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>PIPOL KONEK</title>
+    {% if session.get('title') %}
+    <title>{{ session['title'] }}</title>
+    {% endif %}
     <link
       rel="stylesheet"
       href="{{url_for('static', filename='styles.css')}}"
@@ -11,30 +13,29 @@
     <div class="home-header"></div>
     <div class="home-container">
       <section class="main-content">
-        <h2>WELCOME TO</h2>
-        <h1>PIPOL KONEK</h1>
-        <h4>FREE WI-FI INTERNET ACCESS</h4>
-        <h4>IN PUBLIC PLACES PROJECT</h4>
+        <img src="{{url_for('static', filename='free_wifi.png')}}" class="logo-big" />
+        <h4 class="red-forecolor">A PROJECT OF</h4>
         <div class="logo-container">
-          <img src="{{url_for('static', filename='dict2.png')}}" class="logo" />
+          <img src="{{url_for('static', filename='dict2.png')}}" class="logo" style="margin-right:2vw;" />
           <img
             src="{{url_for('static', filename='apollo.png')}}"
             class="logo"
           />
         </div>
         {% if send_to_access %}
-        <a href="{{ url_for('access', lang=lang) }}"
-          >
+          <a href="{{ url_for('access', lang=lang) }}">
         {% else %}
-        <a href="{{ url_for('lang') }}"
-          >
+<!--
+          <a href="{{ url_for('lang') }}">
+-->
+          <a href="{{ url_for('lang') + '?gw_id=' + session['gw_id'] + '&gw_sn=' + session['gw_sn'] + '&gw_address=' + session['gw_address'] + '&gw_port=' + session['gw_port'] + '&ip=' + session['ip'] + '&mac=' + session['mac'] + '&apmac=' + session['apmac'] + '&ssid=' + session['ssid'] + '&vlanid=' + session['vlanid'] + '&session_messages=' + "&url=http://speedtest.apollo.com.ph/" }}">
         {% endif %}
-        <button class="enter-button">ENTER</button></a
-        >
+            <button class="enter-button">ENTER</button>
+          </a>
       </section>
       <br />
       <section class="copyright-footer">
-        <p>Apollo Technologies, Inc. &copy; 2019 | <a href="https://rt.apolloglobal.net" target="_blank">Contact Us</a></p>
+        <p>Apollo Technologies, Inc. &copy; <script type="text/javascript">document.write(new Date().getFullYear());</script> | <a href="https://rt.apolloglobal.net" target="_blank">Contact Us</a></p>
       </section>
     </div>
     <div class="home-footer"></div>

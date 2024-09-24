@@ -1,7 +1,9 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>PIPOL KONEK</title>
+      {% if session.get('title') %}
+      <title>{{ session['title'] }}</title>
+      {% endif %}
     <link
       rel="stylesheet"
       href="{{url_for('static', filename='styles.css')}}"
@@ -71,7 +73,7 @@
           >
         </div>
         <div class="copyright-footer">
-          <p>Apollo Technologies, Inc. &copy; 2019 | <a href="https://rt.apolloglobal.net" target="_blank">Contact Us</a></p>
+          <p>Apollo Technologies, Inc. &copy;<script type="text/javascript">document.write(new Date().getFullYear());</script>| <a href="https://rt.apolloglobal.net" target="_blank">Contact Us</a></p>
         </div>
       </section>
       <br />

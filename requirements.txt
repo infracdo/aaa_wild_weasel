@@ -16,8 +16,10 @@ Mako==1.0.7
 MarkupSafe==1.1.0
 netaddr==0.7.19
 Pillow==5.4.1
-psycopg2==2.7.7
-psycopg2-binary==2.7.7
+#psycopg2==2.7.7
+#psycopg2-binary==2.7.7
+psycopg2==2.8.3
+psycopg2-binary==2.8.3
 py-radius==2.0.2.post1
 pyrad==2.1
 python-dateutil==2.7.5

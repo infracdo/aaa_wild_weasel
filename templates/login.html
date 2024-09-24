@@ -1,7 +1,9 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>PIPOL KONEK</title>
+      {% if session.get('title') %}
+      <title>{{ session['title'] }}</title>
+      {% endif %}
     <script src="{{ url_for('static', filename='jquery-3.3.1.min.js') }}"></script>
     <link href="{{ url_for('static', filename='bootstrap.min.css') }}" rel="stylesheet"/>
     <script src="{{ url_for('static', filename='bootstrap.min.js') }}"></script>
@@ -15,7 +17,10 @@
     <div class="content-container">
       <div class="top-bar"></div>
       <section class="logo-row">
-        <div class="login-logo"><h1>PIPOL KONEK</h1></div>
+          <img
+          src="{{url_for('static', filename='free_wifi.png')}}"
+          class="login-logo"
+        />
         <img
           src="{{ url_for('static', filename='dict.png') }}"
           class="login-logo"
@@ -36,7 +41,7 @@
           <input type="text" name="uname" placeholder="user@example.com" />
           <label for="pword">Password</label>
           <input type="password" name="pword" placeholder="Password" />
-          <input type="hidden" name="package" value="Registered" />
+          <input type="hidden" name="package" value="Register" />
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
           <p>
             <a href="{{ url_for('sendPasswordResetLink') }}"
@@ -54,17 +59,19 @@
           </button>
           <br /><br />
           <p>
+<!--
             <a href="{{ url_for('register', lang=lang) }}"
               >{% if lang == 'tl' %}Di pa nakapagrehistro? Mag-click dito para
               magrehistro. {% else %}Not yet registered? Click here to register.
               {% endif %}</a
             >
+-->
           </p>
         </fieldset>
       </form>
       <br /><br /><br />
       <div class="copyright-footer">
-        <p>Apollo Technologies, Inc. &copy; 2019 | <a href="https://rt.apolloglobal.net" target="_blank">Contact Us</a></p>
+        <p>Apollo Technologies, Inc. &copy; <script type="text/javascript">document.write(new Date().getFullYear());</script> | <a href="https://rt.apolloglobal.net" target="_blank">Contact Us</a></p>
       </div>
     </div>
     <br /><br />

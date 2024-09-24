@@ -1,7 +1,9 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>PIPOL KONEK</title>
+      {% if session.get('title') %}
+      <title>{{ session['title'] }}</title>
+      {% endif %}
     <link
       rel="stylesheet"
       href="{{url_for('static', filename='styles.css')}}"
@@ -26,6 +28,15 @@
         <br />
         <h2>{{ message }}</h2>
       </section>
+      {% if verifyLink %}
+      <section
+        style="display: flex; flex-direction: row; justify-content: center; margin-bottom: 2vh;"
+      >
+        <a href="{{ verifyLink }}"
+          ><button class="enter-button portal-next red"><strong>{{ verifyText }}</strong></button></a
+        >
+      </section>
+      {% endif %}
       {% if hideReturnToHome %}
       <p></p>
       {% else %}
@@ -33,13 +44,18 @@
         style="display: flex; flex-direction: row; justify-content: center; margin-bottom: 2vh;"
       >
         <a href="{{ returnLink }}"
-          ><button class="enter-button portal-next">Back</button></a
-        >
+          >
+          {% if return_text %}
+          <button class="enter-button portal-next">{{ return_text }}</button>
+          {% else %}
+          <button class="enter-button portal-next">Back</button>
+          {% endif %}
+          </a>
       </section>
       {% endif %}
       <br /><br />
       <div class="copyright-footer">
-        <p>Apollo Technologies, Inc. &copy; 2019 | <a href="https://rt.apolloglobal.net" target="_blank">Contact Us</a></p>
+        <p>Apollo Technologies, Inc. &copy; <script type="text/javascript">document.write(new Date().getFullYear());</script> | <a href="https://rt.apolloglobal.net" target="_blank">Contact Us</a></p>
       </div>
       <br />
     </div>

@@ -1,0 +1,67 @@
+{
+    "title": "Free WiFi For All",
+    "connect" : "Please connect to the portal using your WiFi settings.",
+    "day_limit_exceeded" : "You have exceeded your data usage limit for today.",
+    "month_limit_exceeded" : "You have exceeded your data usage limit for this month.",
+    "schedule" : ["Sorry, Pipol Konek is only available from ", " to "],
+    "email_validation" : "Check your email inbox or spam folder for the activation link from Pipol Konek. You are given five (5) minutes of internet connection to activate your account.",
+    "pw_reset" : "Check your email inbox or spam folder for the password reset link from Pipol Konek. You are given five (5) minutes of internet connection to reset your password.",
+    "email_activate_subject": "PIPOL KONEK Membership Activation",
+    "email_activate_body": "Click on the following link to activate your membership: ",
+    "reg_errors": {
+        "date" : "Please enter a valid date.",
+        "bday" : "Please enter a valid birthdate.",
+        "pw_match" : "Passwords do not match.",
+        "email_exists" : "Email already registered.",
+        "invalid_inputs" : "Your form has some invalid input(s). Please fix them, and re-enter passwords, before submitting.",
+        "invalid_email": "Please enter a valid email address.",
+        "error" : "There was an error in creating your registration. Please try again later."
+    },
+    "reg_form_labels" : {
+        "header": "Register",
+        "email" : "Email",
+        "fname" : "First Name",
+        "mname" : "Middle Name",
+        "lname" : "Last Name",
+        "ename" : "Name Extension",
+        "address" : "Address",
+        "phone": "Phone Number",
+        "bday" : "Birthday",
+        "gender" : "Gender",
+        "id_type" : "Government ID Type",
+        "id_value" : "Value",
+        "repeat": "Repeat ",
+        "back": "Back"
+    },
+    "activate" : {
+        "activated" : "Your account has already been activated.",
+        "success" : "You have successfully activated your account. You may log in after your current session expires.",
+        "invalid" : "You have submitted an invalid activation link."
+    },
+    "enter_email" : [ "Please enter an email address that is registered with Pipol Konek. " , "Register here." ],
+    "reset_pw" : "Click on the following link to reset your password:",
+    "reset_pw_form" : {
+        "header" : "Reset Password",
+        "pw1" : "New Password",
+        "pw2" : "Repeat Password",
+        "reset_button" : "Reset",
+        "email" : "Registered Email Address",
+        "description" : "Your password reset link will be sent to the registered email address associated with your account.",
+        "submit" : "Send"
+    },
+    "reset_errors" : {
+        "mismatch" : "The passwords you entered do not match.",
+        "all_fields" : "Please fill in all fields.",
+        "pw_length" : "Password must be at least 7 characters.",
+        "success" : "Your password has been reset.",
+        "error" : "There was an error resetting your password.",
+        "email" : "Please enter a valid email address."
+    },
+    "login_creds_denied" : "Access denied! The username or password you entered is incorrect.",
+    "login_unverified" : "Access denied! Your account has not yet been activated.",
+    "activation_button" : "Resend Activation Link",
+    "invalid_certificate" : "Your browser/device certificate does not exist or is invalid. Please contact DICT to apply for a valid certificate.",
+    "return_text" : "Back",
+    "verify" : "Check your email inbox or spam folder for the activation link from Pipol Konek.",
+    "no_user" : "User does not exist."
+}

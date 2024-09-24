@@ -1,0 +1,66 @@
+{
+    "title": "Free WiFi For All",
+    "connect" : "Mangyaring kumonekta sa portal gamit ang iyong setting ng WiFi.",
+    "day_limit_exceeded" : "Lumampas ka na sa iyong limitasyon sa paggamit ng data para sa araw na ito.",
+    "month_limit_exceeded" : "Lumampas ka na sa iyong limitasyon sa paggamit ng data para sa buwang ito.",
+    "schedule" : ["Paumanhin, magagamit lamang ang Pipol Konek mula ", " hanggang "],
+    "email_validation" : "Suriin ang iyong email inbox o spam folder para sa link ng pag-activate mula sa Pipol Konek. Bibigyan ka ng limang (5) minuto ng koneksyon sa internet upang maisaaktibo ang iyong account.",
+    "pw_reset" : "Suriin ang iyong email inbox o spam folder para sa link ng pag-reset ng password mula sa Pipol Konek. Bibigyan ka ng limang (5) minuto ng koneksyon sa internet upang mai-reset ang iyong password.",
+    "email_activate_subject": "PIPOL KONEK: Pag-aktibo ng Miyembro",
+    "email_activate_body": "Mag-click sa sumusunod na link upang maisaaktibo ang iyong pagiging miyembro: ",
+    "reg_errors": {
+        "date" : "Mag-input ng wastong petsa.",
+        "bday" : "Mag-input ng isang wastong petsa ng kapanganakan.",
+        "pw_match" : "Hindi magkatugma ang mga password.",
+        "email_exists" : "Nakarehistro na ang email.",
+        "invalid_inputs" : "Mayroong ilang di-wastong input ang iyong form. Mangyaring ayusin ang mga ito, at muling i-type ang mga password, bago magsumite.",
+        "invalid_email": "Mag-input ng isang wastong email address.",
+        "error" : "Nagkaroon ng error sa paglikha ng iyong rehistrasyon. Subukang muli pagkalipas ng ilang minuto."
+    },
+    "reg_form_labels" : {
+        "header": "Magrehistro",
+        "email" : "Email",
+        "fname" : "Pangalan",
+        "mname" : "Gitnang Pangalan",
+        "lname" : "Apelyido",
+        "ename" : "Extensyon ng Pangalan",
+        "address" : "Tirahan",
+        "phone": "Numero ng Telepono",
+        "bday" : "Kaarawan",
+        "gender" : "Kasarian",
+        "id_type" : "Uri ng Government ID",
+        "id_value" : "Numero",
+        "repeat": "Ulitin ang ",
+        "back" : "Bumalik"
+    },
+    "activate" : {
+        "activated" : "Ang iyong account ay na-activate na.",
+        "success" : "Matagumpay mong na-activate ang iyong account. Maaari kang mag-log in pagkatapos mag-expire ang iyong kasalukuyang session.",
+        "invalid" : "Nagsumite ka ng isang hindi wastong link ng pag-activate."
+    },
+    "enter_email" : [ "Mag-login gamit ang isang email address na nakarehistro sa Pipol Konek. " , "Magrehistro dito." ],
+    "reset_pw" : "I-click ang sumusunod na link upang i-reset ang iyong password:",
+    "reset_pw_form" : {
+        "header" : "I-reset ang Password",
+        "pw1" : "Bagong Password",
+        "pw2" : "Ulitin ang Password",
+        "reset_button" : "I-reset",
+        "email" : "Nakarehistro na Email Address",
+        "description" : "Ang link sa pag-reset ng iyong password ay ipapadala sa nakarehistrong email address na nauugnay sa iyong account.",
+        "submit" : "Ipadala"
+    },
+    "reset_errors" : {
+        "mismatch" : "Ang mga password na iyong ininput ay hindi magkatugma.",
+        "all_fields" : "Mangyaring punan ang lahat ng mga patlang.",
+        "pw_length" : "Ang password ay dapat na hindi bababa sa pitong (7) mga character.",
+        "success" : "Na-reset ang iyong password.",
+        "error" : "Nagkaroon ng error sa pag-reset ng iyong password."
+    },
+    "login_creds_denied": "Ang iyong inilagay na username o password ay mali.",
+    "login_unverified" : "Hindi pa naisaaktibo ang iyong account.",
+    "activation_button" : "Muling Ipadala ang Activation Link",
+    "invalid_certificate" : "Ang sertipiko ng iyong browser/device ay hindi wasto. Mangyaring makipag-ugnay sa DICT upang mag-aplay para sa isang wastong sertipiko.",
+    "return_text": "Bumalik",
+    "verify" : "Suriin ang iyong email inbox o spam folder para sa link ng pag-activate mula sa Pipol Konek.",
+    "no_user" : "User does not exist."
+}

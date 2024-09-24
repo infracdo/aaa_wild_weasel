@@ -71,7 +71,17 @@
                   <div class="alert alert-dismissable">
                   {% endif %}
                     <button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>
-                    {{m}}
+                    {% if 'null value in column "modified_by_id" violates not-null constraint' in m %}
+                    This user has made some modifications. Delete the modifications first before you can delete this user.
+                    {% elif 'violates foreign key constraint "admin_users_mpop_id_fkey"' in m %}
+                      Existing users are connected to this gateway. Delete the users first before you can delete this gateway.
+                    {% elif 'update or delete on table "admin_users" violates foreign key constraint' in m %}
+                      This user has created / modified existing settings. Delete the settings first before you can delete this user.
+                    {% elif m[0:15] == "Integrity error" %}
+                      This setting for this gateway already exists. Please modify the existing setting.
+                    {% else %}
+                    {{ m }}
+                    {% endif %}
                   </div>
                 {% endfor %}
               {% endif %}
